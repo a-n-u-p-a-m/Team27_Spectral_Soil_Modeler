@@ -1,0 +1,143 @@
+# Spectral Soil Modeler - Requirements
+# =====================================
+# Python 3.10+
+# Complete list of dependencies for the Spectral Soil Modeler project
+
+# ============================================================================
+# CORE DEPENDENCIES - Required for all functionality
+# ============================================================================
+
+# Core Data Science & ML Libraries
+numpy==2.3.4                            # Numerical computing & arrays
+pandas==2.3.3                           # Data manipulation and analysis
+scikit-learn==1.7.2                     # Machine learning algorithms (PLSR, GBRT, SVR, KRR, GridSearchCV)
+scipy==1.16.3                           # Scientific computing (stats, signal processing, interpolation)
+
+# Web Framework & Visualization
+streamlit==1.51.0                       # Interactive web app framework
+plotly==6.4.0                           # Interactive charts & visualizations
+
+# Model Persistence & Serialization
+joblib==1.5.2                           # Model saving/loading with compression
+
+# ============================================================================
+# OPTIONAL DEPENDENCIES - Uncomment as needed
+# ============================================================================
+
+# For AI/LLM Integration (Google Gemini and OpenAI):
+google-generativeai>=0.3.0              # Google Generative AI API (Gemini)
+openai>=1.0.0                           # OpenAI API client (ChatGPT)
+
+# For PDF/Report Generation:
+reportlab>=3.6.0                        # PDF generation
+
+# For Excel file support:
+openpyxl>=3.1.0                         # Excel file reading (.xlsx)
+xlrd>=2.0.0                             # Excel file reading (.xls)
+
+# For additional data formats:
+pyarrow>=14.0.0                         # Parquet & Arrow data format support
+
+# Development & Testing (uncomment as needed):
+# pytest>=7.0.0                         # Unit testing framework
+# pytest-cov>=3.0.0                     # Code coverage for pytest
+# black>=22.0.0                         # Code formatting
+# flake8>=4.0.0                         # Code linting
+# mypy>=0.950                           # Static type checking
+
+# ============================================================================
+# TRANSITIVE DEPENDENCIES - Auto-installed with the above
+# ============================================================================
+# (Listed for reference and transparency)
+
+# Streamlit & Web Framework Dependencies
+altair==5.5.0                           # Visualization library for Streamlit
+blinker==1.9.0                          # Signal support
+cachetools==6.2.1                       # Caching utilities
+click==8.3.0                            # CLI framework
+gitpython==3.1.45                       # Git operations
+Jinja2==3.1.6                           # Template engine
+jsonschema==4.25.1                      # JSON schema validation
+MarkupSafe==3.0.3                       # Safe string handling
+protobuf>=3.20,<5                       # Protocol buffers
+pydeck==0.9.1                           # Deck.gl bindings for maps
+pytz==2025.2                            # Timezone library
+requests==2.32.5                        # HTTP library
+tenacity==9.1.2                         # Retry library
+toml==0.10.2                            # TOML parser
+tornado==6.5.2                          # Async networking
+watchdog==6.0.0                         # File system monitoring
+
+# Data & Plotting Dependencies
+contourpy==1.3.3                        # Contour line calculations
+cycler==0.12.1                          # Cycler for plotting
+fonttools==4.60.1                       # Font handling
+kiwisolver==1.4.9                       # Constraint solving for plotting
+narwhals==2.11.0                        # DataFrame interoperability
+packaging==25.0                         # Package utilities
+pillow==12.0.0                          # Image processing
+pyparsing==3.2.5                        # Parsing library
+
+# Network & Security
+certifi==2025.11.12                     # SSL certificates
+charset-normalizer==3.4.4               # Character encoding
+idna==3.11                              # Internationalized domain names
+urllib3==2.5.0                          # HTTP client
+
+# Utilities & Support
+python-dateutil==2.9.0.post0            # Date utilities
+six==1.17.0                             # Python 2/3 compatibility
+smmap==5.0.2                            # Git map support
+threadpoolctl==3.6.0                    # Thread pool control
+typing_extensions==4.15.0               # Type hints backport
+tzdata==2025.2                          # Timezone database
+tqdm==4.67.1                            # Progress bars
+
+# Google API Dependencies (for Google Gemini)
+google-api-core>=2.28.0                 # Google API client core
+google-api-python-client>=2.187.0       # Google API client
+google-auth>=2.43.0                     # Google authentication
+google-auth-httplib2>=0.2.0             # Google auth HTTP support
+google-ai-generativelanguage>=0.6.0     # Google AI Language library
+googleapis-common-protos>=1.72.0        # Google common protos
+
+# gRPC & Protocol Buffer Dependencies
+grpcio>=1.76.0                          # gRPC client library
+grpcio-status>=1.62.0                   # gRPC status utilities
+proto-plus>=1.26.0                      # Protocol buffer utilities
+
+# OpenAI Dependencies
+pydantic>=2.0.0                         # Data validation library
+
+# Additional Utilities
+anyio>=4.0.0                            # Async I/O support
+httpcore>=1.0.0                         # Core HTTP library
+httplib2>=0.31.0                        # HTTP client library
+httpx>=0.28.0                           # HTTPX client library
+sniffio>=1.3.0                          # Async library detection
+
+# ============================================================================
+# INSTALLATION & USAGE
+# ============================================================================
+#
+# To install all dependencies:
+#   pip install -r requirements.txt
+#
+# To install in a virtual environment:
+#   source soil/bin/activate
+#   pip install -r requirements.txt
+#
+# To create a clean environment from scratch:
+#   python -m venv soil
+#   source soil/bin/activate
+#   pip install --upgrade pip
+#   pip install -r requirements.txt
+#
+# To install minimal (no AI/LLM):
+#   pip install numpy pandas scikit-learn scipy streamlit plotly joblib
+#
+# Version Pinning Strategy:
+# - Uses exact versions (==) for stability and reproducibility
+# - All core dependencies tested and working together
+# - Versions correspond to Python 3.10+ environments
+# - Last verified: December 1, 2025
