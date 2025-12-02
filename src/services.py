@@ -255,7 +255,9 @@ class ContextBuilder:
     
     @staticmethod
     def build_data_context(raw_data: pd.DataFrame, target_col: str,
-                          data_profiler: Optional[Any] = None) -> str:
+                          data_profiler: Optional[Any] = None,
+                          feature_engineering_config: Optional[Dict[str, Any]] = None,
+                          feature_engineering_data: Optional[Dict[str, Any]] = None) -> str:
         """
         Build comprehensive data context with analytics.
         
@@ -267,6 +269,10 @@ class ContextBuilder:
             Target column name
         data_profiler : Optional[Any]
             DataProfiler instance for additional analytics
+        feature_engineering_config : Optional[Dict[str, Any]]
+            Feature engineering configuration used
+        feature_engineering_data : Optional[Dict[str, Any]]
+            Calculated feature engineering values and statistics
             
         Returns
         -------
@@ -381,6 +387,106 @@ class ContextBuilder:
             except Exception as e:
                 logger.debug(f"Could not detect outliers: {e}")
             
+            # Add feature engineering context if provided
+            if feature_engineering_config and any([
+                feature_engineering_config.get('derivatives'),
+                feature_engineering_config.get('statistical'),
+                feature_engineering_config.get('polynomial'),
+                feature_engineering_config.get('spectral_indices'),
+                feature_engineering_config.get('pca'),
+                feature_engineering_config.get('wavelet')
+            ]):
+                context_parts.extend([
+                    "",
+                    "FEATURE ENGINEERING APPLIED:",
+                    "",
+                ])
+                
+                fe_techniques = []
+                if feature_engineering_config.get('derivatives'):
+                    fe_techniques.append("  • Spectral Derivatives (1st-order): Captures rate of change across wavelengths")
+                if feature_engineering_config.get('statistical'):
+                    window = feature_engineering_config.get('stat_window', 10)
+                    fe_techniques.append(f"  • Statistical Features (window={window}): Mean, std, variance, skewness, kurtosis")
+                if feature_engineering_config.get('polynomial'):
+                    fe_techniques.append("  • Polynomial Features: Interaction terms between spectral bands")
+                if feature_engineering_config.get('spectral_indices'):
+                    fe_techniques.append("  • Spectral Indices: Custom aggregate metrics (mean, std, slope, curvature)")
+                if feature_engineering_config.get('pca'):
+                    fe_techniques.append("  • PCA Features: Principal Component Analysis for dimensionality reduction (5 components)")
+                if feature_engineering_config.get('wavelet'):
+                    fe_techniques.append("  • Wavelet Features: Discrete wavelet transform for multi-scale feature analysis")
+                
+                context_parts.extend(fe_techniques)
+                
+                # Add calculated feature engineering statistics if available
+                if feature_engineering_data:
+                    context_parts.extend([
+                        "",
+                        "FEATURE ENGINEERING VALUES AND STATISTICS:",
+                        ""
+                    ])
+                    
+                    # Derivatives statistics
+                    if 'derivatives' in feature_engineering_data:
+                        deriv_stats = feature_engineering_data['derivatives']
+                        context_parts.append(f"  Spectral Derivatives:")
+                        context_parts.append(f"    - Output shape: {deriv_stats.get('shape', 'N/A')}")
+                        context_parts.append(f"    - Mean value: {deriv_stats.get('mean', 'N/A')}")
+                        context_parts.append(f"    - Std dev: {deriv_stats.get('std', 'N/A')}")
+                        context_parts.append(f"    - Range: [{deriv_stats.get('min', 'N/A')}, {deriv_stats.get('max', 'N/A')}]")
+                    
+                    # Statistical features statistics
+                    if 'statistical' in feature_engineering_data:
+                        stat_stats = feature_engineering_data['statistical']
+                        context_parts.append(f"  Statistical Features:")
+                        context_parts.append(f"    - Output shape: {stat_stats.get('shape', 'N/A')}")
+                        context_parts.append(f"    - Features: Mean, Std, Variance, Skewness, Kurtosis")
+                        context_parts.append(f"    - Window statistics (mean across windows):")
+                        context_parts.append(f"      • Mean: {stat_stats.get('mean', 'N/A')}")
+                        context_parts.append(f"      • Std dev: {stat_stats.get('std', 'N/A')}")
+                    
+                    # Polynomial features statistics
+                    if 'polynomial' in feature_engineering_data:
+                        poly_stats = feature_engineering_data['polynomial']
+                        context_parts.append(f"  Polynomial Features (Degree 2):")
+                        context_parts.append(f"    - Output shape: {poly_stats.get('shape', 'N/A')}")
+                        context_parts.append(f"    - Includes: Original + squares + all pairwise interactions")
+                        context_parts.append(f"    - Mean value: {poly_stats.get('mean', 'N/A')}")
+                        context_parts.append(f"    - Range: [{poly_stats.get('min', 'N/A')}, {poly_stats.get('max', 'N/A')}]")
+                    
+                    # Spectral indices statistics
+                    if 'spectral_indices' in feature_engineering_data:
+                        indices_stats = feature_engineering_data['spectral_indices']
+                        context_parts.append(f"  Spectral Indices:")
+                        context_parts.append(f"    - Mean Reflectance: {indices_stats.get('mean_reflectance', 'N/A')}")
+                        context_parts.append(f"    - Spectral Std Dev: {indices_stats.get('std_reflectance', 'N/A')}")
+                        context_parts.append(f"    - Reflectance Slope: {indices_stats.get('slope', 'N/A')}")
+                        context_parts.append(f"    - Spectral Curvature: {indices_stats.get('curvature', 'N/A')}")
+                    
+                    # PCA features statistics
+                    if 'pca' in feature_engineering_data:
+                        pca_stats = feature_engineering_data['pca']
+                        context_parts.append(f"  PCA Features:")
+                        context_parts.append(f"    - Output shape: {pca_stats.get('shape', 'N/A')}")
+                        context_parts.append(f"    - Explained variance ratio: {pca_stats.get('explained_variance', 'N/A')}")
+                        context_parts.append(f"    - Total variance explained: {pca_stats.get('total_variance', 'N/A')}")
+                    
+                    # Wavelet features statistics
+                    if 'wavelet' in feature_engineering_data:
+                        wavelet_stats = feature_engineering_data['wavelet']
+                        context_parts.append(f"  Wavelet Features:")
+                        context_parts.append(f"    - Output shape: {wavelet_stats.get('shape', 'N/A')}")
+                        context_parts.append(f"    - Wavelet type: {wavelet_stats.get('wavelet_type', 'N/A')}")
+                        context_parts.append(f"    - Mean approximation: {wavelet_stats.get('mean_approx', 'N/A')}")
+                    
+                    context_parts.append("")
+                
+                context_parts.extend([
+                    "Impact: Feature engineering increased feature space and created derived features",
+                    "that capture different aspects of the spectral data."
+                ])
+            
             context_parts.append("=" * 80)
             return "\n".join(context_parts)
             
@@ -395,7 +501,10 @@ class ContextBuilder:
                               raw_data: pd.DataFrame,
                               target_col: str,
                               paradigm: Optional[str] = None,
-                              data_analytics_context: Optional[str] = None) -> str:
+                              data_analytics_context: Optional[str] = None,
+                              feature_engineering_config: Optional[Dict[str, Any]] = None,
+                              feature_engineering_data: Optional[Dict[str, Any]] = None,
+                              feature_importance_data: Optional[Dict[str, Any]] = None) -> str:
         """
         Build comprehensive training results context.
         
@@ -411,6 +520,12 @@ class ContextBuilder:
             Training paradigm ('Standard', 'Tuned', 'Both'). If None, will attempt to infer from data.
         data_analytics_context : Optional[str]
             Data analytics context from earlier analysis
+        feature_engineering_config : Optional[Dict[str, Any]]
+            Feature engineering configuration used
+        feature_engineering_data : Optional[Dict[str, Any]]
+            Calculated feature engineering values and statistics
+        feature_importance_data : Optional[Dict[str, Any]]
+            Feature importance data from all models
             
         Returns
         -------
@@ -423,6 +538,106 @@ class ContextBuilder:
             # Add data analytics context if provided
             if data_analytics_context:
                 context_parts.append(data_analytics_context)
+                context_parts.append("")
+            
+            # Add feature engineering context if provided
+            if feature_engineering_config and any([
+                feature_engineering_config.get('derivatives'),
+                feature_engineering_config.get('statistical'),
+                feature_engineering_config.get('polynomial'),
+                feature_engineering_config.get('spectral_indices'),
+                feature_engineering_config.get('pca'),
+                feature_engineering_config.get('wavelet')
+            ]):
+                context_parts.extend([
+                    "FEATURE ENGINEERING APPLIED:",
+                    "",
+                ])
+                
+                fe_techniques = []
+                if feature_engineering_config.get('derivatives'):
+                    fe_techniques.append("  • Spectral Derivatives (1st-order): Captures rate of change across wavelengths")
+                if feature_engineering_config.get('statistical'):
+                    window = feature_engineering_config.get('stat_window', 10)
+                    fe_techniques.append(f"  • Statistical Features (window={window}): Mean, std, variance, skewness, kurtosis")
+                if feature_engineering_config.get('polynomial'):
+                    fe_techniques.append("  • Polynomial Features: Interaction terms between spectral bands")
+                if feature_engineering_config.get('spectral_indices'):
+                    fe_techniques.append("  • Spectral Indices: Custom aggregate metrics (mean, std, slope, curvature)")
+                if feature_engineering_config.get('pca'):
+                    fe_techniques.append("  • PCA Features: Principal Component Analysis for dimensionality reduction (5 components)")
+                if feature_engineering_config.get('wavelet'):
+                    fe_techniques.append("  • Wavelet Features: Discrete wavelet transform for multi-scale feature analysis")
+                
+                context_parts.extend(fe_techniques)
+                
+                # Add calculated feature engineering statistics if available
+                if feature_engineering_data:
+                    context_parts.extend([
+                        "",
+                        "FEATURE ENGINEERING VALUES AND STATISTICS:",
+                        ""
+                    ])
+                    
+                    # Derivatives statistics
+                    if 'derivatives' in feature_engineering_data:
+                        deriv_stats = feature_engineering_data['derivatives']
+                        context_parts.append(f"  Spectral Derivatives:")
+                        context_parts.append(f"    - Output shape: {deriv_stats.get('shape', 'N/A')}")
+                        context_parts.append(f"    - Mean value: {deriv_stats.get('mean', 'N/A')}")
+                        context_parts.append(f"    - Std dev: {deriv_stats.get('std', 'N/A')}")
+                        context_parts.append(f"    - Range: [{deriv_stats.get('min', 'N/A')}, {deriv_stats.get('max', 'N/A')}]")
+                    
+                    # Statistical features statistics
+                    if 'statistical' in feature_engineering_data:
+                        stat_stats = feature_engineering_data['statistical']
+                        context_parts.append(f"  Statistical Features:")
+                        context_parts.append(f"    - Output shape: {stat_stats.get('shape', 'N/A')}")
+                        context_parts.append(f"    - Features: Mean, Std, Variance, Skewness, Kurtosis")
+                        context_parts.append(f"    - Window statistics (mean across windows):")
+                        context_parts.append(f"      • Mean: {stat_stats.get('mean', 'N/A')}")
+                        context_parts.append(f"      • Std dev: {stat_stats.get('std', 'N/A')}")
+                    
+                    # Polynomial features statistics
+                    if 'polynomial' in feature_engineering_data:
+                        poly_stats = feature_engineering_data['polynomial']
+                        context_parts.append(f"  Polynomial Features (Degree 2):")
+                        context_parts.append(f"    - Output shape: {poly_stats.get('shape', 'N/A')}")
+                        context_parts.append(f"    - Includes: Original + squares + all pairwise interactions")
+                        context_parts.append(f"    - Mean value: {poly_stats.get('mean', 'N/A')}")
+                        context_parts.append(f"    - Range: [{poly_stats.get('min', 'N/A')}, {poly_stats.get('max', 'N/A')}]")
+                    
+                    # Spectral indices statistics
+                    if 'spectral_indices' in feature_engineering_data:
+                        indices_stats = feature_engineering_data['spectral_indices']
+                        context_parts.append(f"  Spectral Indices:")
+                        context_parts.append(f"    - Mean Reflectance: {indices_stats.get('mean_reflectance', 'N/A')}")
+                        context_parts.append(f"    - Spectral Std Dev: {indices_stats.get('std_reflectance', 'N/A')}")
+                        context_parts.append(f"    - Reflectance Slope: {indices_stats.get('slope', 'N/A')}")
+                        context_parts.append(f"    - Spectral Curvature: {indices_stats.get('curvature', 'N/A')}")
+                    
+                    # PCA features statistics
+                    if 'pca' in feature_engineering_data:
+                        pca_stats = feature_engineering_data['pca']
+                        context_parts.append(f"  PCA Features:")
+                        context_parts.append(f"    - Output shape: {pca_stats.get('shape', 'N/A')}")
+                        context_parts.append(f"    - Explained variance ratio: {pca_stats.get('explained_variance', 'N/A')}")
+                        context_parts.append(f"    - Total variance explained: {pca_stats.get('total_variance', 'N/A')}")
+                    
+                    # Wavelet features statistics
+                    if 'wavelet' in feature_engineering_data:
+                        wavelet_stats = feature_engineering_data['wavelet']
+                        context_parts.append(f"  Wavelet Features:")
+                        context_parts.append(f"    - Output shape: {wavelet_stats.get('shape', 'N/A')}")
+                        context_parts.append(f"    - Wavelet type: {wavelet_stats.get('wavelet_type', 'N/A')}")
+                        context_parts.append(f"    - Mean approximation: {wavelet_stats.get('mean_approx', 'N/A')}")
+                    
+                    context_parts.append("")
+                
+                context_parts.extend([
+                    "Impact: Feature engineering increased feature dimensionality and created derived features",
+                    "that capture different aspects of the spectral data."
+                ])
                 context_parts.append("")
             
             # Determine training paradigm (use provided paradigm or infer from data)
@@ -630,6 +845,66 @@ class ContextBuilder:
                         context_parts.append(model_line)
                     
                     context_parts.append("")
+            
+            # Add feature importance information if provided
+            # Handle both single model importance and multiple models importance dict
+            if feature_importance_data:
+                context_parts.extend([
+                    "=" * 80,
+                    "FEATURE IMPORTANCE ANALYSIS FOR ALL MODEL-TECHNIQUE COMBINATIONS",
+                    "=" * 80,
+                    ""
+                ])
+                
+                # Check if it's a dictionary of multiple models or single model
+                if isinstance(feature_importance_data, dict):
+                    # If it has 'top_features' key, it's old format (single model)
+                    if 'top_features' in feature_importance_data:
+                        context_parts.extend([
+                            f"Model: {feature_importance_data.get('model_name', 'Unknown')}",
+                            f"Importance Type: {feature_importance_data.get('importance_type', 'unknown')}",
+                            f"Total Features: {feature_importance_data.get('n_features', 0)}",
+                            "",
+                            "Top 10 Most Important Spectral Bands:",
+                            ""
+                        ])
+                        
+                        for i, feat in enumerate(feature_importance_data['top_features'][:10], 1):
+                            band_idx = feat['index']
+                            importance = feat['importance']
+                            context_parts.append(f"  {i:2d}. Band {band_idx:3d}: {importance:.6f}")
+                    else:
+                        # Multiple models format - iterate through all models
+                        for combo_key, fi_info in sorted(feature_importance_data.items(), 
+                                                         key=lambda x: x[1].get('r2_score', 0), reverse=True):
+                            model_name = fi_info.get('model', 'Unknown')
+                            technique = fi_info.get('technique', 'Unknown')
+                            r2_score = fi_info.get('r2_score', 0)
+                            importance_type = fi_info.get('importance_type', 'unknown')
+                            top_features = fi_info.get('top_features', [])
+                            n_features = fi_info.get('n_features', 0)
+                            
+                            context_parts.extend([
+                                f"Model: {model_name} | Technique: {technique} | R²: {r2_score:.6f}",
+                                f"  Importance Type: {importance_type}",
+                                f"  Total Features: {n_features}",
+                                f"  Top 10 Most Important Spectral Bands:",
+                                ""
+                            ])
+                            
+                            for i, feat in enumerate(top_features[:10], 1):
+                                band_idx = feat.get('index', 0)
+                                importance = feat.get('importance', 0)
+                                context_parts.append(f"    {i:2d}. Band {band_idx:3d}: {importance:.6f}")
+                            
+                            context_parts.append("")
+                
+                context_parts.extend([
+                    "Interpretation: These spectral bands had the strongest influence on each model's",
+                    "predictions for soil property estimation. Compare importance across models to identify",
+                    "consistently important bands and model-specific sensitivities.",
+                    ""
+                ])
             
             context_parts.append("=" * 80)
             

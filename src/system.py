@@ -790,6 +790,257 @@ class ResultsExporter:
             report['metadata'] = metadata
         
         return report
+    
+    
+    def export_comprehensive_excel(self, results_df: pd.DataFrame,
+                                  paradigm: str = "Standard",
+                                  filename: str = None) -> str:
+        """
+        Export comprehensive results with feature importance and predictions to Excel.
+        
+        Includes:
+        - Model Results: Basic metrics (R², RMSE, MAE, RPD, hyperparameters)
+        - Feature Importance: Top features by importance method
+        - Predictions: Test predictions and residuals
+        - Feature Engineering: Config and generated features
+        - Summary: Overall statistics
+        """
+        import numpy as np
+        
+        if filename is None:
+            filename = f"results_comprehensive_{paradigm}_{self.timestamp}.xlsx"
+        
+        filepath = self.export_dir / filename
+        
+        try:
+            with pd.ExcelWriter(filepath, engine='openpyxl') as writer:
+                # Sheet 1: Main Results
+                results_export = results_df[[
+                    'Model', 'Technique', 'Train_R²', 'Test_R²', 'Train_RMSE', 
+                    'Test_RMSE', 'Train_MAE', 'Test_MAE', 'RPD'
+                ]].copy()
+                
+                # Add hyperparameters as string
+                results_export['Hyperparameters'] = results_df['Hyperparameters'].astype(str)
+                results_export.to_excel(writer, sheet_name='Results', index=False)
+                
+                # Sheet 2: Feature Importance (All Methods)
+                importance_list = []
+                for idx, row in results_df.iterrows():
+                    importance_data = row.get('Feature_Importance')
+                    if importance_data and isinstance(importance_data, dict):
+                        model_name = row['Model']
+                        technique = row['Technique']
+                        
+                        # Extract all methods
+                        all_methods = importance_data.get('all_methods', {})
+                        top_features = importance_data.get('top_features', [])
+                        
+                        for feature_info in top_features:
+                            feature_row = {
+                                'Model': model_name,
+                                'Technique': technique,
+                                'Feature_Name': feature_info.get('name', 'Unknown'),
+                                'Feature_Index': feature_info.get('index', -1),
+                                'Importance_Value': feature_info.get('importance', 0)
+                            }
+                            
+                            # Add values from each method
+                            for method_name, method_importances in all_methods.items():
+                                if isinstance(method_importances, np.ndarray) and feature_info['index'] < len(method_importances):
+                                    feature_row[f'Importance_{method_name}'] = float(method_importances[feature_info['index']])
+                            
+                            importance_list.append(feature_row)
+                
+                if importance_list:
+                    importance_df = pd.DataFrame(importance_list)
+                    importance_df.to_excel(writer, sheet_name='Feature_Importance', index=False)
+                
+                # Sheet 3: Predictions
+                predictions_list = []
+                for idx, row in results_df.iterrows():
+                    predictions = row.get('Predictions')
+                    y_test = row.get('y_Test')
+                    
+                    if predictions is not None and y_test is not None:
+                        pred_array = predictions if isinstance(predictions, np.ndarray) else np.array(predictions)
+                        y_test_array = y_test if isinstance(y_test, np.ndarray) else np.array(y_test)
+                        
+                        residuals = y_test_array - pred_array
+                        
+                        pred_df = pd.DataFrame({
+                            'Model': row['Model'],
+                            'Technique': row['Technique'],
+                            'Actual': y_test_array,
+                            'Predicted': pred_array,
+                            'Residual': residuals,
+                            'Abs_Error': np.abs(residuals)
+                        })
+                        predictions_list.append(pred_df)
+                
+                if predictions_list:
+                    all_predictions = pd.concat(predictions_list, ignore_index=True)
+                    all_predictions.to_excel(writer, sheet_name='Predictions', index=False)
+                
+                # Sheet 4: Feature Engineering Configuration
+                fe_config_list = []
+                for idx, row in results_df.iterrows():
+                    fe_config = row.get('FE_Config', {})
+                    X_test = row.get('X_Test')
+                    
+                    fe_row = {
+                        'Model': row['Model'],
+                        'Technique': row['Technique'],
+                        'Use_Derivatives': fe_config.get('derivatives', False),
+                        'Use_Statistical': fe_config.get('statistical', False),
+                        'Use_Polynomial': fe_config.get('polynomial', False),
+                        'Use_Spectral_Indices': fe_config.get('spectral_indices', False),
+                        'Use_PCA': fe_config.get('pca', False),
+                        'Use_Wavelet': fe_config.get('wavelet', False),
+                        'Total_Features': X_test.shape[1] if X_test is not None else 0,
+                    }
+                    
+                    # Add polynomial degree if applicable
+                    if fe_config.get('polynomial'):
+                        fe_row['Polynomial_Degree'] = fe_config.get('poly_degree', 2)
+                    
+                    fe_config_list.append(fe_row)
+                
+                if fe_config_list:
+                    fe_df = pd.DataFrame(fe_config_list)
+                    fe_df.to_excel(writer, sheet_name='Feature_Engineering', index=False)
+                
+                # Sheet 5: Summary Statistics
+                summary_data = {
+                    'Paradigm': [paradigm],
+                    'Total_Models': [len(results_df)],
+                    'Best_R²': [results_df['Test_R²'].max()],
+                    'Mean_R²': [results_df['Test_R²'].mean()],
+                    'Std_R²': [results_df['Test_R²'].std()],
+                    'Models_Above_0.7': [len(results_df[results_df['Test_R²'] > 0.7])],
+                    'Mean_RMSE': [results_df['Test_RMSE'].mean()],
+                    'Mean_MAE': [results_df['Test_MAE'].mean()],
+                    'Best_Model': [results_df.loc[results_df['Test_R²'].idxmax(), 'Model']],
+                    'Best_Technique': [results_df.loc[results_df['Test_R²'].idxmax(), 'Technique']],
+                    'Unique_Models': [results_df['Model'].nunique()],
+                    'Unique_Techniques': [results_df['Technique'].nunique()],
+                }
+                summary_df = pd.DataFrame(summary_data)
+                summary_df.to_excel(writer, sheet_name='Summary', index=False)
+                
+                # Format all sheets
+                for worksheet in writer.sheets.values():
+                    for column in worksheet.columns:
+                        max_length = 0
+                        column_letter = column[0].column_letter
+                        
+                        for cell in column:
+                            try:
+                                if len(str(cell.value)) > max_length:
+                                    max_length = len(str(cell.value))
+                            except:
+                                pass
+                        
+                        adjusted_width = min(max_length + 2, 50)
+                        worksheet.column_dimensions[column_letter].width = adjusted_width
+            
+            return str(filepath)
+        
+        except Exception as e:
+            raise Exception(f"Failed to export comprehensive Excel: {str(e)}")
+    
+    
+    def export_comprehensive_json(self, results_df: pd.DataFrame,
+                                 paradigm: str = "Standard",
+                                 filename: str = None) -> str:
+        """
+        Export comprehensive results to JSON including feature importance and predictions.
+        """
+        import numpy as np
+        
+        if filename is None:
+            filename = f"results_comprehensive_{paradigm}_{self.timestamp}.json"
+        
+        filepath = self.export_dir / filename
+        
+        export_json = {
+            'metadata': {
+                'exported_at': datetime.now().isoformat(),
+                'paradigm': paradigm,
+                'total_models': len(results_df),
+                'version': '2.0'
+            },
+            'summary': {
+                'best_r2': float(results_df['Test_R²'].max()),
+                'mean_r2': float(results_df['Test_R²'].mean()),
+                'std_r2': float(results_df['Test_R²'].std()),
+                'best_model': results_df.loc[results_df['Test_R²'].idxmax(), 'Model'],
+                'best_technique': results_df.loc[results_df['Test_R²'].idxmax(), 'Technique'],
+                'unique_models': int(results_df['Model'].nunique()),
+                'unique_techniques': int(results_df['Technique'].nunique()),
+            },
+            'results': []
+        }
+        
+        for idx, row in results_df.iterrows():
+            result_entry = {
+                'model': row['Model'],
+                'technique': row['Technique'],
+                'metrics': {
+                    'train_r2': float(row['Train_R²']),
+                    'test_r2': float(row['Test_R²']),
+                    'train_rmse': float(row['Train_RMSE']),
+                    'test_rmse': float(row['Test_RMSE']),
+                    'train_mae': float(row['Train_MAE']),
+                    'test_mae': float(row['Test_MAE']),
+                    'rpd': float(row['RPD']),
+                },
+                'hyperparameters': dict(row['Hyperparameters']) if isinstance(row['Hyperparameters'], dict) else str(row['Hyperparameters']),
+            }
+            
+            # Add feature importance
+            importance_data = row.get('Feature_Importance')
+            if importance_data and isinstance(importance_data, dict):
+                result_entry['feature_importance'] = {
+                    'primary_type': importance_data.get('importance_type'),
+                    'top_features': importance_data.get('top_features', []),
+                    'methods_available': list(importance_data.get('all_methods', {}).keys()),
+                }
+            
+            # Add feature engineering config
+            fe_config = row.get('FE_Config', {})
+            result_entry['feature_engineering'] = {
+                'derivatives': bool(fe_config.get('derivatives', False)),
+                'statistical': bool(fe_config.get('statistical', False)),
+                'polynomial': bool(fe_config.get('polynomial', False)),
+                'poly_degree': fe_config.get('poly_degree', 2),
+                'spectral_indices': bool(fe_config.get('spectral_indices', False)),
+                'pca': bool(fe_config.get('pca', False)),
+                'wavelet': bool(fe_config.get('wavelet', False)),
+            }
+            
+            # Add prediction stats
+            predictions = row.get('Predictions')
+            y_test = row.get('y_Test')
+            if predictions is not None and y_test is not None:
+                pred_array = predictions if isinstance(predictions, np.ndarray) else np.array(predictions)
+                y_test_array = y_test if isinstance(y_test, np.ndarray) else np.array(y_test)
+                residuals = y_test_array - pred_array
+                
+                result_entry['prediction_stats'] = {
+                    'n_predictions': int(len(pred_array)),
+                    'mean_residual': float(np.mean(residuals)),
+                    'std_residual': float(np.std(residuals)),
+                    'max_residual': float(np.max(np.abs(residuals))),
+                    'min_residual': float(np.min(np.abs(residuals))),
+                }
+            
+            export_json['results'].append(result_entry)
+        
+        with open(filepath, 'w') as f:
+            json.dump(export_json, f, indent=2, default=str)
+        
+        return str(filepath)
 
 
 class StreamlitExporter:
@@ -906,6 +1157,83 @@ class StreamlitExporter:
                 f"training_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
                 "📄 JSON"
             )
+    
+    
+    @staticmethod
+    def create_comprehensive_export_section(results_df: pd.DataFrame, paradigm: str = "Standard"):
+        """
+        Create comprehensive export section with feature importance, predictions, and engineering config.
+        
+        Includes:
+        - Excel with multiple sheets (Results, Feature Importance, Predictions, Feature Engineering, Summary)
+        - JSON with complete metadata and all computed values
+        - CSV with main results
+        """
+        import streamlit as st
+        from system import ResultsExporter
+        
+        st.markdown("### 📥 Comprehensive Export Results")
+        st.markdown("""
+        Download your complete analysis including:
+        - **Feature Importance**: Top features from all computation methods
+        - **Predictions**: Test set predictions with residuals
+        - **Feature Engineering**: Configuration and feature counts
+        - **Summary Statistics**: Overall model performance
+        """)
+        
+        col1, col2, col3 = st.columns(3)
+        
+        # Create exporter
+        exporter = ResultsExporter()
+        
+        with col1:
+            st.markdown("#### 📊 CSV (Main Results)")
+            # Prepare results for CSV
+            csv_df = results_df[[
+                'Model', 'Technique', 'Train_R²', 'Test_R²', 'Train_RMSE', 
+                'Test_RMSE', 'Train_MAE', 'Test_MAE', 'RPD'
+            ]].copy()
+            csv_df['Hyperparameters'] = results_df['Hyperparameters'].astype(str)
+            
+            csv_bytes = csv_df.to_csv(index=False).encode()
+            st.download_button(
+                label="📥 Download CSV",
+                data=csv_bytes,
+                file_name=f"results_comprehensive_{paradigm.lower()}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                mime="text/csv"
+            )
+        
+        with col2:
+            st.markdown("#### 📈 Excel (All Data)")
+            st.markdown("*Includes: Results, Feature Importance, Predictions, Feature Engineering, Summary*")
+            try:
+                excel_path = exporter.export_comprehensive_excel(results_df, paradigm=paradigm)
+                with open(excel_path, 'rb') as f:
+                    excel_bytes = f.read()
+                st.download_button(
+                    label="📥 Download Excel",
+                    data=excel_bytes,
+                    file_name=f"results_comprehensive_{paradigm.lower()}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+            except Exception as e:
+                st.error(f"Error preparing Excel export: {str(e)}")
+        
+        with col3:
+            st.markdown("#### 📄 JSON (Complete)")
+            st.markdown("*Includes: All metrics, feature importance, predictions stats, engineering config*")
+            try:
+                json_path = exporter.export_comprehensive_json(results_df, paradigm=paradigm)
+                with open(json_path, 'r') as f:
+                    json_bytes = f.read().encode()
+                st.download_button(
+                    label="📥 Download JSON",
+                    data=json_bytes,
+                    file_name=f"results_comprehensive_{paradigm.lower()}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                    mime="application/json"
+                )
+            except Exception as e:
+                st.error(f"Error preparing JSON export: {str(e)}")
 
 
 # ============================================================================

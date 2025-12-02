@@ -502,3 +502,143 @@ class PerformanceComparator:
         ranked = ranked.sort_values('Test_R²', ascending=False)
         
         return ranked[['Rank', 'Model', 'Technique', 'Test_R²', 'Test_RMSE', 'Test_MAE']]
+    
+    
+    @staticmethod
+    def compute_feature_importance(model, X_train: np.ndarray, X_test: np.ndarray, 
+                                   y_train: np.ndarray, y_test: np.ndarray,
+                                   model_name: str = "Model") -> Dict[str, Any]:
+        """
+        Compute feature importance for a trained model.
+        
+        Parameters
+        ----------
+        model : object
+            Trained model with predict method
+        X_train : np.ndarray
+            Training features
+        X_test : np.ndarray
+            Testing features
+        y_train : np.ndarray
+            Training target
+        y_test : np.ndarray
+            Testing target
+        model_name : str
+            Name of the model
+            
+        Returns
+        -------
+        Dict[str, Any]
+            Feature importance scores and metadata
+        """
+        importance_data = {
+            'model_name': model_name,
+            'n_features': X_test.shape[1],
+            'importance_type': 'unknown',
+            'feature_importance': None,
+            'top_features': None
+        }
+        
+        try:
+            # Try permutation feature importance (model-agnostic)
+            from sklearn.inspection import permutation_importance
+            
+            result = permutation_importance(
+                model.model if hasattr(model, 'model') else model,
+                X_test, y_test, n_repeats=10, random_state=42, n_jobs=-1
+            )
+            
+            importances = result.importances_mean
+            importance_data['importance_type'] = 'permutation'
+            importance_data['feature_importance'] = importances
+            
+            # Get top features
+            top_indices = np.argsort(importances)[-10:][::-1]
+            importance_data['top_features'] = [
+                {'index': int(idx), 'importance': float(importances[idx])}
+                for idx in top_indices if importances[idx] > 0
+            ]
+            
+        except Exception as e:
+            logger.debug(f"Permutation importance failed for {model_name}: {e}")
+            
+            # Try coefficient-based importance (linear models)
+            try:
+                if hasattr(model, 'coef_'):
+                    importances = np.abs(model.coef_)
+                elif hasattr(model, 'model') and hasattr(model.model, 'coef_'):
+                    importances = np.abs(model.model.coef_)
+                else:
+                    importances = None
+                
+                if importances is not None:
+                    # Handle 2D coefficients (multioutput)
+                    if len(importances.shape) > 1:
+                        importances = np.mean(np.abs(importances), axis=0)
+                    
+                    importance_data['importance_type'] = 'coefficient'
+                    importance_data['feature_importance'] = importances
+                    
+                    # Get top features
+                    top_indices = np.argsort(importances)[-10:][::-1]
+                    importance_data['top_features'] = [
+                        {'index': int(idx), 'importance': float(importances[idx])}
+                        for idx in top_indices if importances[idx] > 0
+                    ]
+            except Exception as e2:
+                logger.debug(f"Coefficient-based importance failed for {model_name}: {e2}")
+                
+                # Try tree-based importance
+                try:
+                    if hasattr(model, 'feature_importances_'):
+                        importances = model.feature_importances_
+                    elif hasattr(model, 'model') and hasattr(model.model, 'feature_importances_'):
+                        importances = model.model.feature_importances_
+                    else:
+                        importances = None
+                    
+                    if importances is not None:
+                        importance_data['importance_type'] = 'tree_based'
+                        importance_data['feature_importance'] = importances
+                        
+                        # Get top features
+                        top_indices = np.argsort(importances)[-10:][::-1]
+                        importance_data['top_features'] = [
+                            {'index': int(idx), 'importance': float(importances[idx])}
+                            for idx in top_indices if importances[idx] > 0
+                        ]
+                except Exception as e3:
+                    logger.debug(f"Tree-based importance failed for {model_name}: {e3}")
+        
+        return importance_data
+    
+    
+    @staticmethod
+    def get_feature_importance_summary(importance_data: Dict[str, Any]) -> str:
+        """
+        Get human-readable summary of feature importance.
+        
+        Parameters
+        ----------
+        importance_data : Dict[str, Any]
+            Feature importance data from compute_feature_importance
+            
+        Returns
+        -------
+        str
+            Formatted summary text
+        """
+        summary = []
+        summary.append(f"Model: {importance_data['model_name']}")
+        summary.append(f"Importance Type: {importance_data['importance_type']}")
+        summary.append(f"Total Features: {importance_data['n_features']}")
+        
+        if importance_data['top_features']:
+            summary.append("\nTop 10 Most Important Features:")
+            for i, feat in enumerate(importance_data['top_features'], 1):
+                idx = feat['index']
+                imp = feat['importance']
+                summary.append(f"  {i}. Band {idx}: {imp:.6f}")
+        
+        return "\n".join(summary)
+

@@ -13,7 +13,7 @@ Features:
 """
 
 import streamlit as st
-from typing import Optional
+from typing import Optional, Dict, Any
 
 
 def apply_modern_style():
@@ -1456,11 +1456,12 @@ class DataAnalyticsUI:
         st.markdown("## 📊 Data Analytics & Profiling")
         
         # Create tabs for different analyses
-        tab1, tab2, tab3, tab4 = st.tabs([
+        tab1, tab2, tab3, tab4, tab5 = st.tabs([
             "📋 Profile",
             "🔗 Correlations",
             "📉 Distributions",
-            "✅ Quality"
+            "✅ Quality",
+            "✨ Feature Engineering"
         ])
         
         with tab1:
@@ -1474,6 +1475,551 @@ class DataAnalyticsUI:
         
         with tab4:
             DataQualityAnalytics.display_quality_assessment(data)
+        
+        with tab5:
+            DataAnalyticsUI.display_feature_engineering_analytics(data, target)
+    
+    @staticmethod
+    def display_feature_engineering_analytics(data: pd.DataFrame, target: str = None):
+        """
+        Display feature engineering analytics and visualizations.
+        
+        Parameters
+        ----------
+        data : pd.DataFrame
+            Input dataset
+        target : str, optional
+            Target column name
+        """
+        import plotly.graph_objects as go
+        import plotly.express as px
+        from preprocessing import SpectralPreprocessor
+        
+        st.markdown("### ✨ Feature Engineering Analysis")
+        st.markdown("Preview of how different feature engineering techniques transform your spectral data.")
+        
+        # Separate features and target
+        if target and target in data.columns:
+            X = data.drop(columns=[target]).values
+            y = data[target].values
+        else:
+            X = data.values
+            y = None
+        
+        # Create sub-tabs for different feature engineering techniques
+        fe_col1, fe_col2 = st.columns([2, 1])
+        
+        with fe_col1:
+            fe_techniques = st.multiselect(
+                "Select feature engineering techniques to visualize:",
+                ["🔢 Spectral Derivatives", "📊 Statistical Features", 
+                 "🔗 Polynomial Features", "🌈 Spectral Indices", 
+                 "📉 PCA Features", "🌊 Wavelet Features", "📈 Feature Distribution"],
+                default=["🔢 Spectral Derivatives"],
+                key="fe_viz_select"
+            )
+        
+        if not fe_techniques:
+            st.info("Select at least one technique to visualize")
+            return
+        
+        preprocessor = SpectralPreprocessor()
+        
+        # Take first sample for visualization (efficiency)
+        sample_idx = 0
+        sample_spectrum = X[sample_idx:sample_idx+1]
+        
+        # ===== 1. SPECTRAL DERIVATIVES VISUALIZATION =====
+        if "🔢 Spectral Derivatives" in fe_techniques:
+            st.markdown("#### 1️⃣ Spectral Derivatives")
+            st.caption("First derivative captures rate of change in reflectance across wavelengths")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                # Original spectrum
+                fig1 = go.Figure()
+                wavelength = np.arange(X.shape[1])
+                fig1.add_trace(go.Scatter(
+                    x=wavelength, y=sample_spectrum[0],
+                    mode='lines', name='Original Spectrum',
+                    line=dict(color='blue', width=2)
+                ))
+                fig1.update_layout(
+                    title="Original Spectral Data",
+                    xaxis_title="Band Index",
+                    yaxis_title="Reflectance",
+                    height=400,
+                    hovermode='x unified'
+                )
+                st.plotly_chart(fig1, use_container_width=True)
+            
+            with col2:
+                # First derivative
+                deriv = preprocessor.compute_derivatives(sample_spectrum, order=1)[0]
+                fig2 = go.Figure()
+                fig2.add_trace(go.Scatter(
+                    x=wavelength[:-1], y=deriv,
+                    mode='lines', name='1st Derivative',
+                    line=dict(color='orange', width=2)
+                ))
+                fig2.update_layout(
+                    title="First Derivative (dR/dλ)",
+                    xaxis_title="Band Index",
+                    yaxis_title="Derivative Value",
+                    height=400,
+                    hovermode='x unified'
+                )
+                st.plotly_chart(fig2, use_container_width=True)
+            
+            st.markdown(f"**Feature increase:** 100 bands → 99 bands (1st derivative)")
+        
+        # ===== 2. STATISTICAL FEATURES VISUALIZATION =====
+        if "📊 Statistical Features" in fe_techniques:
+            st.markdown("#### 2️⃣ Statistical Features")
+            st.caption("Sliding window statistics: mean, std, variance, skewness, kurtosis")
+            
+            window_size = st.slider(
+                "Window size for statistical computation:",
+                min_value=5, max_value=20, value=10,
+                key="stat_window_viz"
+            )
+            
+            stat_features = preprocessor.compute_statistical_features(sample_spectrum, window_size=window_size)
+            n_stats = 5  # mean, std, var, skew, kurtosis
+            n_windows = stat_features.shape[1] // n_stats
+            
+            col1, col2, col3 = st.columns(3)
+            
+            stat_names = ['Mean', 'Std Dev', 'Variance']
+            for idx, stat_name in enumerate(stat_names):
+                with [col1, col2, col3][idx]:
+                    stat_values = stat_features[0, idx::n_stats]
+                    fig = go.Figure()
+                    fig.add_trace(go.Scatter(
+                        x=np.arange(len(stat_values)),
+                        y=stat_values,
+                        mode='lines+markers',
+                        name=stat_name,
+                        line=dict(width=2)
+                    ))
+                    fig.update_layout(
+                        title=f"{stat_name} Across Windows",
+                        xaxis_title="Window Index",
+                        yaxis_title="Value",
+                        height=350,
+                        hovermode='x unified'
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+            
+            st.markdown(f"**Feature increase:** 100 bands → {stat_features.shape[1]} features ({n_windows} windows × 5 statistics)")
+        
+        # ===== 3. SPECTRAL INDICES VISUALIZATION =====
+        if "🔗 Spectral Indices" in fe_techniques:
+            st.markdown("#### 3️⃣ Spectral Indices")
+            st.caption("Custom aggregate spectral metrics summarizing the entire spectrum")
+            
+            indices = preprocessor.compute_spectral_indices(sample_spectrum)
+            
+            index_names = [
+                "Mean Reflectance\n(Overall Brightness)",
+                "Std Deviation\n(Spectral Variability)",
+                "Reflectance Slope\n(Overall Trend)",
+                "Spectral Curvature\n(Non-linearity)"
+            ]
+            index_values = indices[0]
+            
+            fig = go.Figure(data=[
+                go.Bar(
+                    x=index_names,
+                    y=index_values,
+                    marker=dict(color=['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728']),
+                    text=np.round(index_values, 4),
+                    textposition='auto'
+                )
+            ])
+            fig.update_layout(
+                title="Spectral Indices for Sample Spectrum",
+                yaxis_title="Index Value",
+                height=400,
+                hovermode='x unified'
+            )
+            st.plotly_chart(fig, use_container_width=True)
+            
+            st.markdown("**Feature output:** 4 aggregate indices (1 value per spectrum)")
+        
+        # ===== 4. POLYNOMIAL FEATURES VISUALIZATION =====
+        if "🔗 Polynomial Features" in fe_techniques:
+            st.markdown("#### 4️⃣ Polynomial Features")
+            st.caption("Polynomial interaction terms capturing non-linear relationships (degree 2)")
+            
+            try:
+                poly_features = preprocessor.compute_polynomial_features(sample_spectrum, degree=2)
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    # Show first few polynomial features
+                    fig = go.Figure()
+                    n_show = min(10, poly_features.shape[1])
+                    
+                    for i in range(n_show):
+                        fig.add_trace(go.Scatter(
+                            y=poly_features[0, i::n_show] if i < poly_features.shape[1] else [],
+                            mode='lines+markers',
+                            name=f'Poly_{i}',
+                            line=dict(width=2)
+                        ))
+                    
+                    fig.update_layout(
+                        title="Sample Polynomial Features (Degree 2)",
+                        xaxis_title="Feature Index",
+                        yaxis_title="Feature Value",
+                        height=400,
+                        hovermode='x unified'
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+                
+                with col2:
+                    st.info(f"📊 Feature output: {poly_features.shape[1]} polynomial features\n\nDegree 2 includes: x², y², xy (all pairwise interactions)")
+            except Exception as e:
+                st.warning(f"Could not compute polynomial features: {str(e)}")
+        
+        # ===== 5. PCA FEATURES VISUALIZATION =====
+        if "📉 PCA Features" in fe_techniques:
+            st.markdown("#### 5️⃣ PCA (Principal Component Analysis) Features")
+            st.caption("Dimensionality reduction capturing maximum variance in fewer dimensions")
+            
+            try:
+                # Compute PCA with 5 components
+                pca_features, pca_model = preprocessor.compute_pca_features(X, n_components=5)
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    # Plot PCA components for sample
+                    fig = go.Figure()
+                    fig.add_trace(go.Scatter(
+                        y=pca_features[0, :],
+                        mode='lines+markers',
+                        name='PCA Components',
+                        line=dict(color='purple', width=2),
+                        marker=dict(size=8)
+                    ))
+                    fig.update_layout(
+                        title="PCA Components for Sample Spectrum",
+                        xaxis_title="Component",
+                        yaxis_title="Component Value",
+                        height=400,
+                        hovermode='x unified'
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+                
+                with col2:
+                    # Explained variance
+                    explained_var = pca_model.explained_variance_ratio_
+                    cumsum_var = np.cumsum(explained_var)
+                    
+                    fig = go.Figure()
+                    fig.add_trace(go.Bar(
+                        x=[f'PC{i+1}' for i in range(len(explained_var))],
+                        y=explained_var,
+                        name='Individual Variance',
+                        marker=dict(color='purple')
+                    ))
+                    fig.add_trace(go.Scatter(
+                        x=[f'PC{i+1}' for i in range(len(explained_var))],
+                        y=cumsum_var,
+                        name='Cumulative Variance',
+                        mode='lines+markers',
+                        line=dict(color='darkviolet', width=2),
+                        yaxis='y2'
+                    ))
+                    
+                    fig.update_layout(
+                        title="PCA Explained Variance",
+                        xaxis_title="Principal Component",
+                        yaxis_title="Variance Explained",
+                        yaxis2=dict(title="Cumulative Variance", overlaying='y', side='right'),
+                        height=400,
+                        hovermode='x unified'
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+                
+                st.markdown(f"**Feature output:** 5 principal components (reduced from {X.shape[1]} bands)")
+                st.markdown(f"**Total variance explained:** {cumsum_var[-1]:.2%}")
+            except Exception as e:
+                st.warning(f"Could not compute PCA features: {str(e)}")
+        
+        # ===== 6. WAVELET FEATURES VISUALIZATION =====
+        if "🌊 Wavelet Features" in fe_techniques:
+            st.markdown("#### 6️⃣ Wavelet Features")
+            st.caption("Multi-scale decomposition capturing features at different frequency levels")
+            
+            try:
+                wavelet_features = preprocessor.compute_wavelet_features(sample_spectrum, wavelet='db4')
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    # Original vs Wavelet
+                    fig = go.Figure()
+                    fig.add_trace(go.Scatter(
+                        y=sample_spectrum[0],
+                        mode='lines',
+                        name='Original Spectrum',
+                        line=dict(color='blue', width=2)
+                    ))
+                    fig.add_trace(go.Scatter(
+                        y=wavelet_features[0],
+                        mode='lines',
+                        name='Wavelet Transform',
+                        line=dict(color='orange', width=2, dash='dash')
+                    ))
+                    fig.update_layout(
+                        title="Original Spectrum vs Wavelet Transform",
+                        xaxis_title="Band Index",
+                        yaxis_title="Value",
+                        height=400,
+                        hovermode='x unified'
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+                
+                with col2:
+                    # Distribution comparison
+                    fig = go.Figure()
+                    fig.add_trace(go.Histogram(
+                        x=sample_spectrum[0],
+                        name='Original',
+                        opacity=0.7,
+                        nbinsx=30
+                    ))
+                    fig.add_trace(go.Histogram(
+                        x=wavelet_features[0],
+                        name='Wavelet',
+                        opacity=0.7,
+                        nbinsx=30
+                    ))
+                    fig.update_layout(
+                        title="Distribution Comparison",
+                        xaxis_title="Value",
+                        yaxis_title="Frequency",
+                        height=400,
+                        hovermode='x unified',
+                        barmode='overlay'
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+                
+                st.info("✨ **Wavelet Decomposition:**\n\n- **Approximation coefficients (cA):** Low-frequency trends\n- **Detail coefficients (cD):** High-frequency features\n- **Wavelet type:** Daubechies-4 (db4)")
+                st.markdown(f"**Feature output:** {wavelet_features.shape[1]} wavelet features")
+            except Exception as e:
+                st.warning(f"Could not compute wavelet features: {str(e)}")
+        
+        # ===== 7. FEATURE DIMENSIONALITY IMPACT =====
+        if "📈 Feature Distribution" in fe_techniques:
+            st.markdown("#### 📈 Feature Space Expansion")
+            st.caption("Visualizing how feature engineering increases feature dimensionality")
+            
+            # Calculate feature counts for different combinations
+            original_features = X.shape[1]
+            deriv_features = original_features - 1
+            stat_window = 10
+            stat_features_count = (original_features - stat_window + 1) * 5
+            poly_features_count = int(original_features * (original_features + 3) / 2)  # degree 2
+            pca_features_count = 5
+            wavelet_features_count = original_features
+            indices_features = 4
+            
+            combinations = {
+                'Original': original_features,
+                '+ Derivatives': original_features + deriv_features,
+                '+ Statistics': original_features + stat_features_count,
+                '+ Polynomial': original_features + poly_features_count,
+                '+ PCA': pca_features_count,
+                '+ Wavelet': original_features + wavelet_features_count,
+                '+ Indices': original_features + indices_features,
+                'All Combined': original_features + deriv_features + stat_features_count + poly_features_count + indices_features
+            }
+            
+            fig = go.Figure(data=[
+                go.Bar(
+                    x=list(combinations.keys()),
+                    y=list(combinations.values()),
+                    marker=dict(color=['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f']),
+                    text=list(combinations.values()),
+                    textposition='auto'
+                )
+            ])
+            fig.update_layout(
+                title="Feature Space Growth with Feature Engineering",
+                yaxis_title="Total Feature Count",
+                height=400,
+                hovermode='x unified'
+            )
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Summary table
+            st.markdown("**Feature Count Summary:**")
+            growth_values = [0] + [((v - original_features) / original_features * 100) if v > original_features else ((pca_features_count - original_features) / original_features * 100) for v in list(combinations.values())[1:]]
+            summary_df = pd.DataFrame({
+                'Technique': list(combinations.keys()),
+                'Feature Count': list(combinations.values()),
+                'Growth (%)': [f"{g:.1f}%" if g > 0 else "0%" for g in growth_values]
+            })
+            st.dataframe(summary_df, use_container_width=True)
+            
+            st.info(
+                "💡 **Tip:** More features can improve model performance but may increase training time. "
+                "Start with derivatives or indices for efficiency, add statistics for advanced analysis."
+            )
+
+            DataQualityAnalytics.display_quality_assessment(data)
+
+
+class FeatureImportanceUI:
+    """UI for displaying feature importance analysis."""
+    
+    @staticmethod
+    def display_feature_importance(importance_data: Dict[str, Any], n_bands: int = 100):
+        """
+        Display feature importance visualization.
+        
+        Parameters
+        ----------
+        importance_data : Dict[str, Any]
+            Feature importance data from ModelAnalyzer.compute_feature_importance
+        n_bands : int
+            Total number of spectral bands (for context)
+        """
+        import plotly.graph_objects as go
+        import numpy as np
+        
+        if not importance_data or not importance_data.get('feature_importance'):
+            st.info("Feature importance not available for this model.")
+            return
+        
+        st.markdown("### 📊 Feature Importance Analysis")
+        st.caption(f"Shows which spectral bands contributed most to model predictions ({importance_data['importance_type']} importance)")
+        
+        importances = importance_data['feature_importance']
+        n_features = len(importances)
+        
+        # Create two columns for visualizations
+        col1, col2 = st.columns([2, 1])
+        
+        with col1:
+            # Full feature importance bar chart (top 20)
+            top_n = min(20, n_features)
+            top_indices = np.argsort(importances)[-top_n:][::-1]
+            top_importances = importances[top_indices]
+            
+            fig = go.Figure(data=[
+                go.Bar(
+                    x=top_importances,
+                    y=[f"Band {i}" for i in top_indices],
+                    orientation='h',
+                    marker=dict(color=top_importances, colorscale='Viridis'),
+                    text=np.round(top_importances, 4),
+                    textposition='auto'
+                )
+            ])
+            fig.update_layout(
+                title=f"Top {top_n} Most Important Spectral Bands",
+                xaxis_title="Importance Score",
+                yaxis_title="Spectral Band",
+                height=500,
+                hovermode='y unified'
+            )
+            st.plotly_chart(fig, use_container_width=True)
+        
+        with col2:
+            # Statistics
+            st.markdown("**Importance Statistics:**")
+            st.metric("Total Features", n_features)
+            st.metric("Max Importance", f"{importances.max():.6f}")
+            st.metric("Mean Importance", f"{importances.mean():.6f}")
+            st.metric("Std Dev", f"{importances.std():.6f}")
+            
+            # Percentage of importance in top 10
+            if n_features > 0:
+                total_importance = np.sum(importances)
+                if total_importance > 0:
+                    top_10_importance = np.sum(np.sort(importances)[-10:])
+                    top_10_pct = (top_10_importance / total_importance) * 100
+                    st.metric("Top 10 Contribution", f"{top_10_pct:.1f}%")
+        
+        # Feature importance distribution
+        st.markdown("#### Distribution of Importance Across Bands")
+        
+        fig2 = go.Figure(data=[
+            go.Histogram(
+                x=importances,
+                nbinsx=30,
+                name='Importance Distribution',
+                marker=dict(color='rgba(31, 119, 180, 0.7)')
+            )
+        ])
+        fig2.update_layout(
+            title="Distribution of Feature Importance Scores",
+            xaxis_title="Importance Score",
+            yaxis_title="Number of Features",
+            height=350,
+            hovermode='x unified'
+        )
+        st.plotly_chart(fig2, use_container_width=True)
+        
+        # Heatmap of importance across bands (if not too many features)
+        if n_features <= 150:
+            st.markdown("#### Feature Importance Heatmap")
+            st.caption("Visualizing importance across all spectral bands")
+            
+            # Reshape importances for heatmap (10 rows x n_cols)
+            n_rows = min(10, max(1, n_features // 10))
+            n_cols = (n_features + n_rows - 1) // n_rows
+            
+            # Pad with zeros if needed
+            padded = np.pad(importances, (0, n_rows * n_cols - n_features), mode='constant')
+            heatmap_data = padded.reshape(n_rows, n_cols)
+            
+            fig3 = go.Figure(data=go.Heatmap(
+                z=heatmap_data,
+                colorscale='Viridis',
+                hoverongaps=False
+            ))
+            fig3.update_layout(
+                title="Spectral Band Importance Map",
+                xaxis_title="Band Index",
+                yaxis_title="Row",
+                height=300,
+                width=None
+            )
+            st.plotly_chart(fig3, use_container_width=True)
+        
+        # Key insights
+        st.markdown("#### Key Insights")
+        
+        col_left, col_right = st.columns(2)
+        
+        with col_left:
+            # Most important band
+            most_important_idx = np.argmax(importances)
+            st.success(
+                f"**Most Important Band:** Band {most_important_idx}\n\n"
+                f"Importance: {importances[most_important_idx]:.6f}\n\n"
+                f"This spectral band has the strongest influence on model predictions."
+            )
+        
+        with col_right:
+            # Contribution summary
+            threshold = np.mean(importances)
+            important_bands = np.where(importances > threshold)[0]
+            st.info(
+                f"**Above-Average Importance:** {len(important_bands)} bands\n\n"
+                f"These {len(important_bands)} bands contribute more than the mean importance.\n\n"
+                f"Threshold: {threshold:.6f}"
+            )
+
+
 """
 App Enhancement Integration
 ============================
@@ -1541,7 +2087,7 @@ def render_training_results_section(results_df: pd.DataFrame,
     st.markdown(f"## {paradigm} Training Results")
     
     # Determine which tabs to create based on options
-    tab_names = ["📊 Overview", "📈 Analytics", "📋 Model Details"]
+    tab_names = ["📊 Overview", "📈 Analytics", "⭐ Feature Importance", "📋 Model Details"]
     # Only include AI Insights tab if this is an individual paradigm AND reports are enabled
     include_ai_tab = include_reports and is_individual_paradigm
     if include_ai_tab:
@@ -1563,18 +2109,23 @@ def render_training_results_section(results_df: pd.DataFrame,
             render_analytics_tab(results_df, paradigm)
         tab_idx += 1
     
-    # Tab 3: Model Details
+    # Tab 3: Feature Importance
+    with tabs[tab_idx]:
+        render_feature_importance_tab(results_df, paradigm)
+    tab_idx += 1
+    
+    # Tab 4: Model Details
     with tabs[tab_idx]:
         render_model_details_tab(results_df, paradigm)
     tab_idx += 1
     
-    # Tab 4: AI Insights (if enabled and this is an individual paradigm)
+    # Tab 5: AI Insights (if enabled and this is an individual paradigm)
     if include_ai_tab:
         with tabs[tab_idx]:
             render_ai_insights_tab(results_df, paradigm)
         tab_idx += 1
     
-    # Tab 5: Export (if enabled)
+    # Tab 6: Export (if enabled)
     if include_exports:
         with tabs[tab_idx]:
             render_export_tab(results_df, paradigm)
@@ -1612,11 +2163,11 @@ def render_overview_tab(results_df: pd.DataFrame, paradigm: str):
         
         with col1:
             fig1 = PerformanceAnalytics.create_performance_distribution(results_df)
-            st.plotly_chart(fig1, width='stretch')
+            st.plotly_chart(fig1, width='stretch', key=f"overview_dist_{paradigm}")
         
         with col2:
             fig2 = PerformanceAnalytics.create_technique_comparison(results_df)
-            st.plotly_chart(fig2, width='stretch')
+            st.plotly_chart(fig2, width='stretch', key=f"overview_tech_{paradigm}")
         
         # Top models
         st.markdown("### 🏆 Top Performing Models")
@@ -1673,6 +2224,271 @@ def render_overview_tab(results_df: pd.DataFrame, paradigm: str):
         logger.error(f"Overview rendering error: {e}", exc_info=True)
 
 
+def render_feature_importance_tab(results_df: pd.DataFrame, paradigm: str):
+    """Render feature importance tab showing which spectral bands matter most."""
+    try:
+        from model_analyzer import ModelAnalyzer
+        
+        st.markdown("### ⭐ Feature Importance Analysis")
+        st.markdown("Discover which spectral bands contribute most to the model's predictions.")
+        
+        # Get best model
+        best_idx = results_df['Test_R²'].idxmax()
+        best_row = results_df.loc[best_idx]
+        best_model_name = best_row['Model']
+        best_technique = best_row['Technique']
+        
+        st.info(
+            f"**Best Model:** {best_model_name} with {best_technique} technique\n\n"
+            f"**R² Score:** {best_row['Test_R²']:.6f}"
+        )
+        
+        st.markdown("---")
+        
+        # Model selection
+        col1, col2 = st.columns(2)
+        with col1:
+            selected_model = st.selectbox(
+                "Select model for importance analysis:",
+                results_df['Model'].unique(),
+                index=list(results_df['Model'].unique()).index(best_model_name),
+                key=f"importance_model_{paradigm}"
+            )
+        
+        with col2:
+            model_data = results_df[results_df['Model'] == selected_model]
+            selected_technique = st.selectbox(
+                "Select technique:",
+                model_data['Technique'].unique(),
+                key=f"importance_technique_{paradigm}"
+            )
+        
+        st.markdown("---")
+        
+        # Display feature importance visualization
+        st.markdown(f"#### Feature Importance for {selected_model} ({selected_technique})")
+        
+        # Note about feature importance
+        st.markdown(
+            """
+            **About Feature Importance:**
+            - Shows which spectral bands have the strongest influence on predictions
+            - **Permutation Importance** (primary): How much performance drops when a feature is shuffled
+            - **Coefficient Importance** (linear models): Magnitude of feature weights
+            - **Tree Importance** (tree-based models): Frequency and depth of feature splits
+            
+            **Interpretation:** Higher scores mean the band is more important for accurate predictions.
+            """
+        )
+        
+        # Get actual feature importance (should always be available now)
+        st.markdown("**Feature Importance Visualization:**")
+        
+        import plotly.graph_objects as go
+        import numpy as np
+        
+        # Get the actual computed importance
+        selected_row = results_df[(results_df['Model'] == selected_model) & 
+                                  (results_df['Technique'] == selected_technique)]
+        
+        importances = None
+        importance_type = "Unknown"
+        all_methods = {}
+        
+        if not selected_row.empty and 'Feature_Importance' in selected_row.columns:
+            importance_data = selected_row.iloc[0].get('Feature_Importance')
+            if importance_data is not None and isinstance(importance_data, dict):
+                try:
+                    importances = importance_data.get('feature_importance')
+                    importance_type = importance_data.get('importance_type', 'Unknown')
+                    all_methods = importance_data.get('all_methods', {})
+                    
+                    if importances is not None and len(importances) > 0:
+                        st.success(f"✅ **Primary Method:** {importance_type.title()}")
+                        
+                        # Show available methods
+                        if all_methods and len(all_methods) > 1:
+                            st.info(f"📊 **Available Methods:** {', '.join([m.replace('_', ' ').title() for m in all_methods.keys()])}")
+                            
+                            # Method selector
+                            selected_method = st.selectbox(
+                                "Compare different importance methods:",
+                                list(all_methods.keys()),
+                                index=0,
+                                format_func=lambda x: x.replace('_', ' ').title(),
+                                key=f"method_select_{paradigm}_{selected_model}_{selected_technique}"
+                            )
+                            
+                            if selected_method in all_methods:
+                                importances = all_methods[selected_method]
+                                importance_type = selected_method
+                    else:
+                        st.error("❌ Feature importance data is empty or invalid")
+                except Exception as e:
+                    st.error(f"❌ Error loading feature importance: {str(e)}")
+        else:
+            st.error("❌ Feature importance not computed for this model-technique combination")
+        
+        
+        if importances is not None:
+            n_bands = len(importances)
+            importances = importances / importances.sum() if importances.sum() > 0 else importances
+            
+            st.markdown("---")
+            
+            # ===== WAVELET VISUALIZATION (First) =====
+            st.markdown("#### 🌊 Wavelet Importance Pattern")
+            st.caption("Visualize feature importance as a continuous spectral wave pattern across all bands")
+            
+            try:
+                # Create a smooth wavelet representation of importance
+                from scipy.interpolate import interp1d
+                from scipy.ndimage import gaussian_filter1d
+                
+                # Normalize importances to 0-1 range
+                norm_importances = (importances - importances.min()) / (importances.max() - importances.min() + 1e-8)
+                
+                # Apply Gaussian smoothing for wave-like effect
+                smoothed = gaussian_filter1d(norm_importances, sigma=3)
+                
+                # Create interpolation for smoother visualization
+                x_orig = np.arange(len(smoothed))
+                f = interp1d(x_orig, smoothed, kind='cubic', fill_value='extrapolate')
+                x_smooth = np.linspace(0, len(smoothed)-1, len(smoothed)*3)
+                y_smooth = f(x_smooth)
+                y_smooth = np.clip(y_smooth, 0, 1)  # Keep in [0, 1] range
+                
+                # Create wavelet figure
+                fig_wave = go.Figure()
+                
+                # Add filled area (wave)
+                fig_wave.add_trace(go.Scatter(
+                    x=x_smooth,
+                    y=y_smooth,
+                    fill='tozeroy',
+                    name='Importance Wave',
+                    line=dict(color='rgba(6, 214, 160, 0.8)', width=3),
+                    fillcolor='rgba(6, 214, 160, 0.2)',
+                    hovertemplate='<b>Band Region</b>: %{x:.1f}<br><b>Importance Intensity</b>: %{y:.4f}<extra></extra>'
+                ))
+                
+                # Add peak markers (top 5 features)
+                top_n_wave = min(5, len(importances))
+                top_indices_wave = np.argsort(importances)[-top_n_wave:][::-1]
+                peak_values = norm_importances[top_indices_wave]
+                
+                fig_wave.add_trace(go.Scatter(
+                    x=top_indices_wave,
+                    y=peak_values,
+                    mode='markers+text',
+                    name='Top Features',
+                    marker=dict(size=12, color='#EF476F', symbol='star'),
+                    text=[f"B{i}" for i in top_indices_wave],
+                    textposition='top center',
+                    hovertemplate='<b>Band %{x}</b><br><b>Importance</b>: %{y:.4f}<extra></extra>'
+                ))
+                
+                fig_wave.update_layout(
+                    title=f"Feature Importance as Spectral Wave - {selected_model} ({selected_technique})",
+                    xaxis_title="Spectral Band Index",
+                    yaxis_title="Normalized Importance Intensity",
+                    height=400,
+                    hovermode='x unified',
+                    plot_bgcolor='rgba(14, 17, 23, 0.5)',
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    showlegend=True,
+                    template='plotly_dark'
+                )
+                
+                st.plotly_chart(fig_wave, use_container_width=True, key=f"wave_{paradigm}_{selected_model}_{selected_technique}")
+                
+            except Exception as e:
+                st.warning(f"⚠️ Could not generate wavelet visualization: {str(e)}")
+            
+            st.markdown("---")
+            
+            # ===== TOP 10 BANDS BAR CHART (Second) =====
+            st.markdown("#### 🏆 Top 15 Most Important Spectral Bands")
+            
+            top_n = 15
+            top_indices = np.argsort(importances)[-top_n:][::-1]
+            top_importances = importances[top_indices]
+            
+            fig = go.Figure(data=[
+                go.Bar(
+                    x=top_importances,
+                    y=[f"Band {i}" for i in top_indices],
+                    orientation='h',
+                    marker=dict(color=top_importances, colorscale='Viridis'),
+                    text=np.round(top_importances, 4),
+                    textposition='auto'
+                )
+            ])
+            fig.update_layout(
+                title=f"Top {top_n} Most Important Spectral Bands - {selected_model} ({selected_technique})",
+                xaxis_title="Importance Score",
+                yaxis_title="Spectral Band",
+                height=450,
+                hovermode='y unified'
+            )
+            st.plotly_chart(fig, use_container_width=True, key=f"top_bands_{paradigm}_{selected_model}_{selected_technique}")
+            
+            # Statistics
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Total Bands", n_bands)
+            with col2:
+                st.metric("Max Importance", f"{importances.max():.6f}")
+            with col3:
+                st.metric("Mean Importance", f"{importances.mean():.6f}")
+            with col4:
+                top_10_pct = (importances[np.argsort(importances)[-10:]].sum() / importances.sum()) * 100
+                st.metric("Top 10 Contribution", f"{top_10_pct:.1f}%")
+            
+            # Distribution histogram
+            fig2 = go.Figure(data=[
+                go.Histogram(
+                    x=importances,
+                    nbinsx=30,
+                    name='Importance Distribution',
+                    marker=dict(color='rgba(31, 119, 180, 0.7)')
+                )
+            ])
+            fig2.update_layout(
+                title=f"Distribution of Feature Importance - {selected_model} ({selected_technique})",
+                xaxis_title="Importance Score",
+                yaxis_title="Number of Features",
+                height=350,
+                hovermode='x unified'
+            )
+            st.plotly_chart(fig2, use_container_width=True, key=f"dist_hist_{paradigm}_{selected_model}_{selected_technique}")
+            
+            st.markdown("---")
+            st.markdown("**Key Insights:**")
+            
+            most_important_idx = top_indices[0]
+            most_important_score = top_importances[0]
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                st.success(
+                    f"🎯 **Most Important Band:** Band {most_important_idx}\n\n"
+                    f"**Importance Score:** {most_important_score:.6f}\n\n"
+                    f"This spectral band has the strongest influence on {selected_model}'s predictions."
+                )
+            
+            with col2:
+                important_bands = np.where(importances > np.percentile(importances, 75))[0]
+                st.info(
+                    f"📊 **High-Importance Bands:** {len(important_bands)} bands\n\n"
+                    f"**Top 75th Percentile:** {len(important_bands)} out of {n_bands} bands\n\n"
+                    f"Focus on these wavelengths for improved analysis."
+                )
+        
+    except Exception as e:
+        st.error(f"Could not render feature importance: {str(e)}")
+
+
 def render_analytics_tab(results_df: pd.DataFrame, paradigm: str = ""):
     """Render analytics tab with filtering and detailed charts."""
     try:
@@ -1696,11 +2512,11 @@ def render_analytics_tab(results_df: pd.DataFrame, paradigm: str = ""):
             
             with col1:
                 fig1 = PerformanceAnalytics.create_model_ranking_chart(filtered_data)
-                st.plotly_chart(fig1, width='stretch')
+                st.plotly_chart(fig1, width='stretch', key=f"analytics_rank_{paradigm}")
             
             with col2:
                 fig2 = PerformanceAnalytics.create_metric_scatter(filtered_data)
-                st.plotly_chart(fig2, width='stretch')
+                st.plotly_chart(fig2, width='stretch', key=f"analytics_scatter_{paradigm}")
             
             # Detailed table
             st.markdown("### 📋 Filtered Results")
@@ -1868,17 +2684,52 @@ def render_ai_insights_tab(results_df: pd.DataFrame, paradigm: str):
             # Get data context if available from session state
             data_context = st.session_state.get('data_analytics_context', '')
             
+            # Extract feature importance for ALL models
+            all_feature_importance = {}
+            if 'Feature_Importance' in results_df.columns:
+                for idx, row in results_df.iterrows():
+                    model_name = row['Model']
+                    technique = row['Technique']
+                    combo_key = f"{model_name}_{technique}"
+                    fi_data = row['Feature_Importance']
+                    
+                    if fi_data is not None and isinstance(fi_data, dict):
+                        all_feature_importance[combo_key] = {
+                            'model': model_name,
+                            'technique': technique,
+                            'r2_score': float(row['Test_R²']),
+                            'importance_type': fi_data.get('importance_type'),
+                            'top_features': fi_data.get('top_features', []),
+                            'n_features': fi_data.get('n_features', 0)
+                        }
+            
+            # Get feature engineering config and data for context (from best model)
+            best_idx = results_df['Test_R²'].idxmax()
+            best_fe_config = None
+            fe_data_for_context = None
+            if 'FE_Config' in results_df.columns:
+                best_fe_config = results_df.loc[best_idx, 'FE_Config']
+            if 'FE_Data' in results_df.columns and pd.notna(results_df.loc[best_idx, 'FE_Data']):
+                fe_data_for_context = results_df.loc[best_idx, 'FE_Data']
+            
+            # If not in results_df, try to get from session state
+            if not fe_data_for_context:
+                fe_data_for_context = st.session_state.get('fe_data', None)
+            
             # Build comprehensive training context with explicit paradigm
+            # Pass all feature importance data and feature engineering data
             training_context = ContextBuilder.build_training_context(
                 results_df, 
                 st.session_state.get('raw_data', pd.DataFrame()),
                 st.session_state.get('target_col', 'target'),
                 paradigm=paradigm,
-                data_analytics_context=data_context
+                data_analytics_context=data_context,
+                feature_engineering_config=best_fe_config,
+                feature_engineering_data=fe_data_for_context,
+                feature_importance_data=all_feature_importance if all_feature_importance else None
             )
             
             # Extract hyperparameters early so we can add them to context string
-            best_idx = results_df['Test_R²'].idxmax()
             best_hyperparams_dict = {}
             
             # Try to get hyperparameters from Hyperparameters column first (most reliable)
@@ -1983,63 +2834,71 @@ def render_ai_insights_tab(results_df: pd.DataFrame, paradigm: str):
 
 
 def render_export_tab(results_df: pd.DataFrame, paradigm: str):
-    """Render export options tab."""
+    """Render export options tab with comprehensive export functionality."""
     try:
         from system import StreamlitExporter
         
         st.markdown("### 📥 Export Results")
         
         st.markdown("""
-        Export your training results in multiple formats:
-        - **CSV**: Simple spreadsheet format for analysis
-        - **Excel**: Formatted spreadsheet with multiple sheets
-        - **JSON**: Structured format for integration
+        Export your training results in multiple formats with comprehensive data:
+        - **CSV**: Main results table with metrics and hyperparameters
+        - **Excel**: Multiple sheets with results, feature importance, predictions, and feature engineering config
+        - **JSON**: Complete structured data with all metrics and statistics
         """)
         
         st.markdown("---")
         
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            st.markdown("#### 📊 CSV Export")
-            StreamlitExporter.get_csv_download_button(
-                results_df,
-                f"results_{paradigm.lower()}_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                "📥 Download CSV"
-            )
-        
-        with col2:
-            st.markdown("#### 📈 Excel Export")
-            export_data = {
-                'Results': results_df,
-                'Summary': pd.DataFrame([{
-                    'Total Models': len(results_df),
-                    'Best R²': results_df['Test_R²'].max(),
-                    'Mean R²': results_df['Test_R²'].mean(),
-                }])
-            }
-            StreamlitExporter.get_excel_download_button(
-                export_data,
-                f"results_{paradigm.lower()}_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                "📥 Download Excel"
-            )
-        
-        with col3:
-            st.markdown("#### 📄 JSON Export")
-            export_json = {
-                'paradigm': paradigm,
-                'results': results_df.to_dict(orient='records'),
-                'summary': {
-                    'total_models': len(results_df),
-                    'best_r2': float(results_df['Test_R²'].max()),
-                    'mean_r2': float(results_df['Test_R²'].mean()),
+        # Use comprehensive export
+        try:
+            StreamlitExporter.create_comprehensive_export_section(results_df, paradigm=paradigm)
+        except Exception as e:
+            st.warning(f"Comprehensive export unavailable: {str(e)}")
+            
+            # Fallback to basic export
+            st.markdown("### Fallback: Basic Export")
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.markdown("#### 📊 CSV Export")
+                StreamlitExporter.get_csv_download_button(
+                    results_df,
+                    f"results_{paradigm.lower()}_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                    "📥 Download CSV"
+                )
+            
+            with col2:
+                st.markdown("#### 📈 Excel Export")
+                export_data = {
+                    'Results': results_df,
+                    'Summary': pd.DataFrame([{
+                        'Total Models': len(results_df),
+                        'Best R²': results_df['Test_R²'].max(),
+                        'Mean R²': results_df['Test_R²'].mean(),
+                    }])
                 }
-            }
-            StreamlitExporter.get_json_download_button(
-                export_json,
-                f"results_{paradigm.lower()}_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.json",
-                "📥 Download JSON"
-            )
+                StreamlitExporter.get_excel_download_button(
+                    export_data,
+                    f"results_{paradigm.lower()}_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                    "📥 Download Excel"
+                )
+            
+            with col3:
+                st.markdown("#### 📄 JSON Export")
+                export_json = {
+                    'paradigm': paradigm,
+                    'results': results_df.to_dict(orient='records'),
+                    'summary': {
+                        'total_models': len(results_df),
+                        'best_r2': float(results_df['Test_R²'].max()),
+                        'mean_r2': float(results_df['Test_R²'].mean()),
+                    }
+                }
+                StreamlitExporter.get_json_download_button(
+                    export_json,
+                    f"results_{paradigm.lower()}_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.json",
+                    "📥 Download JSON"
+                )
     
     except Exception as e:
         st.error(f"Error rendering export: {e}")
@@ -2164,6 +3023,36 @@ def _build_all_models_section(results_df: pd.DataFrame, paradigm_name: str) -> s
         if 'Test_MAE' in results_df.columns and pd.notna(row['Test_MAE']):
             model_line += f" | MAE={row['Test_MAE']:.6f}"
         lines.append(model_line)
+    return "\n".join(lines)
+
+
+def _build_feature_importance_section_comparison(all_feature_importance: Dict[str, Any]) -> str:
+    """Build feature importance section for comparison mode (all 30 combinations)."""
+    lines = []
+    
+    # Sort by R² score (descending)
+    sorted_importance = sorted(
+        all_feature_importance.items(),
+        key=lambda x: x[1].get('r2_score', 0),
+        reverse=True
+    )
+    
+    for rank, (combo_key, fi_info) in enumerate(sorted_importance, 1):
+        paradigm = fi_info.get('paradigm', 'Unknown')
+        model_name = fi_info.get('model', 'Unknown')
+        technique = fi_info.get('technique', 'Unknown')
+        r2_score = fi_info.get('r2_score', 0)
+        top_features = fi_info.get('top_features', [])
+        
+        lines.append(f"  {rank:2d}. [{paradigm}] {model_name} + {technique} | R²: {r2_score:.6f}")
+        
+        if top_features:
+            lines.append(f"      Top 5 Important Bands:")
+            for i, feat in enumerate(top_features[:5], 1):
+                band_idx = feat.get('index', 0)
+                importance = feat.get('importance', 0)
+                lines.append(f"        • Band {band_idx:3d}: {importance:.6f}")
+    
     return "\n".join(lines)
 
 
@@ -2389,6 +3278,9 @@ def render_comparison_mode(standard_results: pd.DataFrame,
             st.markdown("---")
             
             try:
+                # Get data analytics context from session state
+                data_analytics_context = st.session_state.get('data_analytics_context', '')
+                
                 # Determine which paradigm performed best
                 standard_best_r2 = comparison['standard_summary'].get('best_r2', 0)
                 tuned_best_r2 = comparison['tuned_summary'].get('best_r2', 0)
@@ -2413,6 +3305,51 @@ def render_comparison_mode(standard_results: pd.DataFrame,
                     best_model_name = tuned_best_model
                     best_technique_name = tuned_best_technique
                     best_r2_val = tuned_best_r2
+                
+                # Extract feature importance for ALL 30 combinations (15 Standard + 15 Tuned)
+                all_feature_importance = {}
+                
+                # Standard paradigm feature importance
+                if 'Feature_Importance' in standard_results.columns:
+                    for idx, row in standard_results.iterrows():
+                        model_name = row['Model']
+                        technique = row['Technique']
+                        combo_key = f"Standard_{model_name}_{technique}"
+                        fi_data = row['Feature_Importance']
+                        
+                        if fi_data is not None and isinstance(fi_data, dict):
+                            all_feature_importance[combo_key] = {
+                                'paradigm': 'Standard',
+                                'model': model_name,
+                                'technique': technique,
+                                'r2_score': float(row['Test_R²']),
+                                'importance_type': fi_data.get('importance_type'),
+                                'top_features': fi_data.get('top_features', []),
+                                'n_features': fi_data.get('n_features', 0)
+                            }
+                
+                # Tuned paradigm feature importance
+                if 'Feature_Importance' in tuned_results.columns:
+                    for idx, row in tuned_results.iterrows():
+                        model_name = row['Model']
+                        technique = row['Technique']
+                        combo_key = f"Tuned_{model_name}_{technique}"
+                        fi_data = row['Feature_Importance']
+                        
+                        if fi_data is not None and isinstance(fi_data, dict):
+                            all_feature_importance[combo_key] = {
+                                'paradigm': 'Tuned',
+                                'model': model_name,
+                                'technique': technique,
+                                'r2_score': float(row['Test_R²']),
+                                'importance_type': fi_data.get('importance_type'),
+                                'top_features': fi_data.get('top_features', []),
+                                'n_features': fi_data.get('n_features', 0)
+                            }
+                
+                # Extract feature engineering data for comparison
+                fe_data_std = st.session_state.get('fe_data', None)
+                fe_data_tuned = st.session_state.get('fe_data', None)  # Both use same FE config
                 
                 # Extract hyperparameters from best models using ParameterInspector
                 std_hyperparams = {}
@@ -2462,11 +3399,18 @@ def render_comparison_mode(standard_results: pd.DataFrame,
                         'tuned_best_r2': tuned_best_r2,
                         'improvement': comparison['improvements'].get('improvement_percent', 0),
                     },
+                    'data_analytics_context': data_analytics_context,
                     'comparison': comparison,
                     'top_models_standard': standard_results.nlargest(3, 'Test_R²')[['Model', 'Technique', 'Test_R²']].to_dict('records'),
                     'top_models_tuned': tuned_results.nlargest(3, 'Test_R²')[['Model', 'Technique', 'Test_R²']].to_dict('records'),
+                    'feature_importance_data': all_feature_importance if all_feature_importance else None,
+                    'feature_engineering_data': fe_data_std if fe_data_std else None,
                     'training_context_str': f"""
+{data_analytics_context}
+
+{'='*80}
 COMPARISON: Standard vs Tuned Training Paradigms
+{'='*80}
 
 Standard Training Results:
 - Paradigm: Standard (No Hyperparameter Tuning)
@@ -2492,6 +3436,18 @@ Comparison Summary:
 - Best Technique Overall: {best_technique_name}
 - Winner R² Score: {best_r2_val:.4f}
 - Improvement: {comparison['improvements'].get('improvement_percent', 0):.2f}%
+
+{'='*80}
+FEATURE ENGINEERING APPLIED:
+{'='*80}
+{f"Feature Engineering Configuration: {', '.join([k for k, v in [('Derivatives', fe_data_std.get('derivatives') if fe_data_std else None), ('Statistical', fe_data_std.get('statistical') if fe_data_std else None), ('Polynomial', fe_data_std.get('polynomial') if fe_data_std else None), ('Spectral Indices', fe_data_std.get('spectral_indices') if fe_data_std else None), ('PCA', fe_data_std.get('pca') if fe_data_std else None), ('Wavelet', fe_data_std.get('wavelet') if fe_data_std else None)] if v])}" if fe_data_std else "No feature engineering applied"}
+
+{'='*80}
+FEATURE IMPORTANCE FOR ALL 30 COMBINATIONS (15 Standard + 15 Tuned)
+{'='*80}
+Ranked by R² Score:
+
+{_build_feature_importance_section_comparison(all_feature_importance) if all_feature_importance else "No feature importance data available"}
 
 {'='*80}
 PERFORMANCE BY ALGORITHM - STANDARD PARADIGM (Model Consistency Across Techniques)

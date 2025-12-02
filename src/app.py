@@ -22,6 +22,7 @@ import logging
 import os
 from datetime import datetime
 import joblib
+import traceback
 from typing import Dict
 from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
 
@@ -241,7 +242,7 @@ def training_mode():
         
         except Exception as e:
             st.markdown(f'<div class="error-box"><b>❌ Error loading data:</b><br>{str(e)}</div>', unsafe_allow_html=True)
-            logger.error(f"Error loading data: {str(e)}", component="app")
+            logger.error(f"Error loading data: {str(e)}")
             return
     
     # Use existing data if already loaded
@@ -514,13 +515,89 @@ def training_mode():
             {'tune': False, 'cv_folds': 5, 'name': 'Standard'}
         ]
     
-    # Display estimated time
-    estimated_times = []
-    for config in tune_configs:
-        base_time = 150 if not config['tune'] else 400
-        estimated_times.append(f"{config['name']}: ~{base_time}s")
+    # Feature Engineering Configuration
+    st.markdown('<div class="section-header">✨ Step 3.5: Feature Engineering (Optional)</div>', unsafe_allow_html=True)
+    st.markdown("Enhance your dataset with advanced feature engineering techniques to improve model performance.")
     
-    st.markdown(f"**Estimated Training Time:** {', '.join(estimated_times)}")
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        use_derivatives = st.checkbox(
+            "🔢 Spectral Derivatives",
+            value=False,
+            help="Compute 1st-order derivatives (dR/dλ) to capture spectral slopes",
+            disabled=st.session_state.get('training_in_progress', False)
+        )
+    
+    with col2:
+        use_statistical = st.checkbox(
+            "📊 Statistical Features",
+            value=False,
+            help="Compute mean, std, variance, skewness, and kurtosis of spectral windows",
+            disabled=st.session_state.get('training_in_progress', False)
+        )
+    
+    with col3:
+        use_polynomial = st.checkbox(
+            "🔗 Polynomial Features",
+            value=False,
+            help="Generate polynomial interaction terms (e.g., degree 2: x², xy, y²)",
+            disabled=st.session_state.get('training_in_progress', False)
+        )
+    
+    # Additional options
+    col4, col5, col6 = st.columns(3)
+    
+    with col4:
+        use_spectral_indices = st.checkbox(
+            "🌈 Spectral Indices",
+            value=False,
+            help="Compute custom spectral indices (mean, variance, slope, curvature)",
+            disabled=st.session_state.get('training_in_progress', False)
+        )
+    
+    with col5:
+        use_pca = st.checkbox(
+            "📉 PCA Features",
+            value=False,
+            help="Principal Component Analysis for dimensionality reduction (5 components)",
+            disabled=st.session_state.get('training_in_progress', False)
+        )
+    
+    with col6:
+        use_wavelet = st.checkbox(
+            "🌊 Wavelet Features",
+            value=False,
+            help="Discrete wavelet transform for multi-scale feature analysis",
+            disabled=st.session_state.get('training_in_progress', False)
+        )
+    
+    # Statistical window size option
+    col7, col8 = st.columns(2)
+    
+    with col7:
+        if use_statistical:
+            stat_window = st.slider(
+                "Statistical Window Size",
+                min_value=5,
+                max_value=20,
+                value=10,
+                help="Window size for computing statistical features",
+                disabled=st.session_state.get('training_in_progress', False)
+            )
+        else:
+            stat_window = 10
+    
+    # Store feature engineering config in session
+    st.session_state.feature_engineering = {
+        'derivatives': use_derivatives,
+        'statistical': use_statistical,
+        'polynomial': use_polynomial,
+        'spectral_indices': use_spectral_indices,
+        'pca': use_pca,
+        'wavelet': use_wavelet,
+        'stat_window': stat_window
+    }
     
     # Step 4: Train
     st.markdown('<div class="section-header">🚀 Step 4: Start Training</div>', unsafe_allow_html=True)
@@ -563,6 +640,122 @@ def training_mode():
             
             st.session_state.preprocessor = preprocessor
             
+            # Feature Engineering
+            fe_config = st.session_state.feature_engineering
+            
+            # Calculate feature engineering statistics on a sample
+            fe_data = {}
+            X_sample = X_train_proc['reflectance'][:1]  # Take first sample for statistics
+            
+            if fe_config['derivatives']:
+                try:
+                    deriv_features = preprocessor.compute_derivatives(X_sample, order=1)
+                    fe_data['derivatives'] = {
+                        'shape': deriv_features.shape,
+                        'mean': float(np.mean(deriv_features)),
+                        'std': float(np.std(deriv_features)),
+                        'min': float(np.min(deriv_features)),
+                        'max': float(np.max(deriv_features))
+                    }
+                except Exception as e:
+                    logger.debug(f"Could not compute derivative statistics: {e}")
+            
+            if fe_config['statistical']:
+                try:
+                    stat_features = preprocessor.compute_statistical_features(X_sample, window_size=fe_config['stat_window'])
+                    fe_data['statistical'] = {
+                        'shape': stat_features.shape,
+                        'mean': float(np.mean(stat_features)),
+                        'std': float(np.std(stat_features))
+                    }
+                except Exception as e:
+                    logger.debug(f"Could not compute statistical features: {e}")
+            
+            if fe_config['polynomial']:
+                try:
+                    poly_features = preprocessor.compute_polynomial_features(X_sample, degree=2)
+                    fe_data['polynomial'] = {
+                        'shape': poly_features.shape,
+                        'mean': float(np.mean(poly_features)),
+                        'min': float(np.min(poly_features)),
+                        'max': float(np.max(poly_features))
+                    }
+                except Exception as e:
+                    logger.debug(f"Could not compute polynomial features: {e}")
+            
+            if fe_config['spectral_indices']:
+                try:
+                    indices = preprocessor.compute_spectral_indices(X_sample)
+                    fe_data['spectral_indices'] = {
+                        'mean_reflectance': float(indices[0, 0]) if indices.shape[1] > 0 else 0,
+                        'std_reflectance': float(indices[0, 1]) if indices.shape[1] > 1 else 0,
+                        'slope': float(indices[0, 2]) if indices.shape[1] > 2 else 0,
+                        'curvature': float(indices[0, 3]) if indices.shape[1] > 3 else 0
+                    }
+                except Exception as e:
+                    logger.debug(f"Could not compute spectral indices: {e}")
+            
+            if fe_config['pca']:
+                try:
+                    pca_features, pca_model = preprocessor.compute_pca_features(X_train_proc['reflectance'], n_components=5)
+                    explained_var = pca_model.explained_variance_ratio_ if hasattr(pca_model, 'explained_variance_ratio_') else []
+                    fe_data['pca'] = {
+                        'shape': pca_features.shape,
+                        'explained_variance': str(np.round(explained_var[:3], 4).tolist()) if len(explained_var) > 0 else "N/A",
+                        'total_variance': float(np.sum(explained_var)) if len(explained_var) > 0 else 0
+                    }
+                except Exception as e:
+                    logger.debug(f"Could not compute PCA features: {e}")
+            
+            if fe_config['wavelet']:
+                try:
+                    wavelet_features = preprocessor.compute_wavelet_features(X_sample)
+                    fe_data['wavelet'] = {
+                        'shape': wavelet_features.shape,
+                        'wavelet_type': 'db4 (Daubechies-4)',
+                        'mean_approx': float(np.mean(wavelet_features))
+                    }
+                except Exception as e:
+                    logger.debug(f"Could not compute wavelet features: {e}")
+            
+            # Update data analytics context with feature engineering information and calculated values
+            st.session_state.data_analytics_context = ContextBuilder.build_data_context(
+                raw_data, 
+                target_col,
+                feature_engineering_config=fe_config,
+                feature_engineering_data=fe_data if fe_data else None
+            )
+            
+            # Store feature engineering data in session state for training context
+            st.session_state.fe_data = fe_data if fe_data else None
+            
+            if any([fe_config['derivatives'], fe_config['statistical'], 
+                   fe_config['polynomial'], fe_config['spectral_indices'],
+                   fe_config['pca'], fe_config['wavelet']]):
+                st.info("✨ Applying feature engineering...")
+                
+                for tech in ['reflectance', 'absorbance', 'continuum_removal']:
+                    X_train_proc[tech] = preprocessor.apply_feature_engineering(
+                        X_train_proc[tech],
+                        derivatives=fe_config['derivatives'],
+                        statistical=fe_config['statistical'],
+                        polynomial=fe_config['polynomial'],
+                        spectral_indices=fe_config['spectral_indices'],
+                        pca=fe_config['pca'],
+                        wavelet=fe_config['wavelet'],
+                        stat_window=fe_config['stat_window']
+                    )
+                    X_test_proc[tech] = preprocessor.apply_feature_engineering(
+                        X_test_proc[tech],
+                        derivatives=fe_config['derivatives'],
+                        statistical=fe_config['statistical'],
+                        polynomial=fe_config['polynomial'],
+                        spectral_indices=fe_config['spectral_indices'],
+                        pca=fe_config['pca'],
+                        wavelet=fe_config['wavelet'],
+                        stat_window=fe_config['stat_window']
+                    )
+            
             # Training progress
             progress_placeholder = st.empty()
             results_placeholder = st.empty()
@@ -591,7 +784,27 @@ def training_mode():
                     # Train all 5 models with this technique
                     for model_name in trainer.models.keys():
                         try:
-                            model = trainer.models[model_name]
+                            # Create a FRESH model instance for this technique to avoid weight overwrites
+                            # IMPORTANT: Pass tune_hyperparameters and cv_folds to enable tuning!
+                            from models.plsr import PLSRModel
+                            from models.gbrt import GBRTModel
+                            from models.krr import KRRModel
+                            from models.svr import SVRModel
+                            from models.cubist import CubistModel
+                            
+                            if model_name == 'PLSR':
+                                model = PLSRModel(n_components=10, tune_hyperparameters=config['tune'], cv_folds=config['cv_folds'])
+                            elif model_name == 'GBRT':
+                                model = GBRTModel(n_estimators=100, learning_rate=0.1, max_depth=5, tune_hyperparameters=config['tune'], cv_folds=config['cv_folds'])
+                            elif model_name == 'KRR':
+                                model = KRRModel(alpha=1.0, kernel='rbf', gamma=None, tune_hyperparameters=config['tune'], cv_folds=config['cv_folds'])
+                            elif model_name == 'SVR':
+                                model = SVRModel(kernel='rbf', C=100.0, epsilon=0.1, tune_hyperparameters=config['tune'], cv_folds=config['cv_folds'])
+                            elif model_name == 'Cubist':
+                                model = CubistModel(n_rules=20, neighbors=5, tune_hyperparameters=config['tune'], cv_folds=config['cv_folds'])
+                            else:
+                                model = trainer.models[model_name]
+                            
                             model.train(X_train_tech, y_train_vals)
                             
                             # Get predictions
@@ -627,15 +840,297 @@ def training_mode():
                                 'RPD': test_rpd,
                                 'Model_Object': model,
                                 'Hyperparameters': hyperparams,
-                                'Predictions': y_test_pred
+                                'Predictions': y_test_pred,
+                                'X_Test': X_test_tech,
+                                'y_Test': y_test_vals,
+                                'FE_Config': fe_config,
+                                'FE_Data': fe_data if 'fe_data' in locals() else None
                             })
                         except Exception as e:
                             st.warning(f"⚠️ Error training {model_name} with {tech}: {str(e)}")
-                            logger.error(f"Error training {model_name} with {tech}: {str(e)}", component="app")
+                            logger.error(f"Error training {model_name} with {tech}: {str(e)}")
                 
                 # Create results DataFrame
                 results = pd.DataFrame(all_technique_results)
                 trainer.results = results  # Store in trainer
+                
+                # Compute feature importance for each trained model (REQUIRED - blocks until complete)
+                st.info("📊 Computing feature importance for all models...")
+                progress_fi = st.progress(0)
+                
+                total_models = len(results)
+                importance_success_count = 0
+                
+                for idx, row in results.iterrows():
+                    model_obj = row['Model_Object']
+                    model_name = row['Model']
+                    technique = row['Technique']
+                    
+                    # Get the correct test data for THIS model's technique
+                    X_test_data = row['X_Test']
+                    y_test_data = row['y_Test']
+                    fe_config = row.get('FE_Config', {})
+                    
+                    # Generate feature names based on original features and engineering config
+                    # Use the shape from X_test_data to determine original feature count
+                    n_total_features = X_test_data.shape[1]
+                    
+                    # Estimate original feature count by working backwards from engineering config
+                    n_original_features = n_total_features
+                    if fe_config.get('derivatives'):
+                        n_original_features -= (n_total_features // 2)  # Rough estimate
+                    
+                    # Start with feature names - try to infer original count
+                    feature_names = [f"Band_{i}" for i in range(min(100, n_total_features))]
+                    
+                    # Add more generic names if we have more features than 100
+                    if n_total_features > 100:
+                        for i in range(100, n_total_features):
+                            if fe_config.get('derivatives') and i < 199:
+                                feature_names.append(f"Deriv_{i-100}")
+                            elif fe_config.get('statistical'):
+                                feature_names.append(f"Stat_{i}")
+                            elif fe_config.get('polynomial'):
+                                feature_names.append(f"Poly_{i}")
+                            elif fe_config.get('spectral_indices'):
+                                feature_names.append(f"Index_{i}")
+                            else:
+                                feature_names.append(f"Feature_{i}")
+                    
+                    # Ensure we have the right number of feature names
+                    while len(feature_names) < n_total_features:
+                        feature_names.append(f"Feature_{len(feature_names)}")
+                    
+                    try:
+                        # Compute feature importance using inline approach
+                        importance_data = {
+                            'model_name': model_name,
+                            'n_features': X_test_data.shape[1],
+                            'feature_names': feature_names,
+                            'importance_type': 'unknown',
+                            'feature_importance': None,
+                            'top_features': None
+                        }
+                        
+                        # Store all available methods
+                        importance_methods = {}
+                        
+                        try:
+                            # Method 1: Permutation feature importance (model-agnostic)
+                            from sklearn.inspection import permutation_importance
+                            
+                            result = permutation_importance(
+                                model_obj.model if hasattr(model_obj, 'model') else model_obj,
+                                X_test_data, y_test_data, n_repeats=10, random_state=42, n_jobs=-1
+                            )
+                            
+                            # Take absolute values - permutation importance can be negative (feature hurts performance)
+                            # but we want non-negative importance scores
+                            importances = np.abs(result.importances_mean)
+                            
+                            # Normalize by sum so total importance = 1.0 (relative importance)
+                            imp_sum = importances.sum()
+                            if imp_sum > 0:
+                                importances = importances / imp_sum
+                            
+                            importance_methods['permutation'] = importances
+                            importance_data['importance_type'] = 'permutation'
+                            importance_data['feature_importance'] = importances
+                            
+                            # Get top features with names
+                            top_indices = np.argsort(importances)[-10:][::-1]
+                            importance_data['top_features'] = [
+                                {
+                                    'index': int(idx), 
+                                    'name': feature_names[idx] if idx < len(feature_names) else f'Feature_{idx}',
+                                    'importance': float(importances[idx])
+                                }
+                                for idx in top_indices if importances[idx] > 0
+                            ]
+                            
+                        except Exception as e:
+                            logger.debug(f"Permutation importance failed for {model_name}: {e}")
+                        
+                        # Method 2: Try coefficient-based importance (linear models)
+                        try:
+                            if hasattr(model_obj, 'coef_'):
+                                importances = np.abs(model_obj.coef_)
+                            elif hasattr(model_obj, 'model') and hasattr(model_obj.model, 'coef_'):
+                                importances = np.abs(model_obj.model.coef_)
+                            else:
+                                importances = None
+                            
+                            if importances is not None:
+                                # Handle 2D coefficients (multioutput)
+                                if len(importances.shape) > 1:
+                                    importances = np.mean(np.abs(importances), axis=0)
+                                
+                                # Normalize by sum so total importance = 1.0 (relative importance)
+                                imp_sum = importances.sum()
+                                if imp_sum > 0:
+                                    importances = importances / imp_sum
+                                
+                                importance_methods['coefficient'] = importances
+                                
+                                # Only update main importance if permutation didn't work
+                                if 'permutation' not in importance_methods or importance_data['feature_importance'] is None:
+                                    importance_data['importance_type'] = 'coefficient'
+                                    importance_data['feature_importance'] = importances
+                                    
+                                    # Get top features with names
+                                    top_indices = np.argsort(importances)[-10:][::-1]
+                                    importance_data['top_features'] = [
+                                        {
+                                            'index': int(idx), 
+                                            'name': feature_names[idx] if idx < len(feature_names) else f'Feature_{idx}',
+                                            'importance': float(importances[idx])
+                                        }
+                                        for idx in top_indices if importances[idx] > 0
+                                    ]
+                        except Exception as e2:
+                            logger.debug(f"Coefficient-based importance failed for {model_name}: {e2}")
+                        
+                        # Method 3: Try tree-based importance
+                        try:
+                            if hasattr(model_obj, 'feature_importances_'):
+                                importances = model_obj.feature_importances_
+                            elif hasattr(model_obj, 'model') and hasattr(model_obj.model, 'feature_importances_'):
+                                importances = model_obj.model.feature_importances_
+                            else:
+                                importances = None
+                            
+                            if importances is not None:
+                                # Normalize by sum so total importance = 1.0 (relative importance)
+                                imp_sum = importances.sum()
+                                if imp_sum > 0:
+                                    importances = importances / imp_sum
+                                
+                                importance_methods['tree_based'] = importances
+                                
+                                # Only update main importance if other methods didn't work
+                                if 'permutation' not in importance_methods and 'coefficient' not in importance_methods:
+                                    importance_data['importance_type'] = 'tree_based'
+                                    importance_data['feature_importance'] = importances
+                                    
+                                    # Get top features with names
+                                    top_indices = np.argsort(importances)[-10:][::-1]
+                                    importance_data['top_features'] = [
+                                        {
+                                            'index': int(idx), 
+                                            'name': feature_names[idx] if idx < len(feature_names) else f'Feature_{idx}',
+                                            'importance': float(importances[idx])
+                                        }
+                                        for idx in top_indices if importances[idx] > 0
+                                    ]
+                        except Exception as e3:
+                            logger.debug(f"Tree-based importance failed for {model_name}: {e3}")
+                        
+                        # Store all methods for reference
+                        importance_data['all_methods'] = importance_methods
+                            
+                        
+                        if importance_data['feature_importance'] is not None:
+                            results.at[idx, 'Feature_Importance'] = importance_data
+                            importance_success_count += 1
+                            logger.info(f"✅ Computed {importance_data.get('importance_type', 'Unknown')} for {model_name} ({technique})")
+                        else:
+                            logger.warning(f"⚠️ Feature importance returned None for {model_name} ({technique}), will retry...")
+                            results.at[idx, 'Feature_Importance'] = None
+                            
+                    except Exception as fi_error:
+                        logger.warning(f"Feature importance error for {model_name} ({technique}): {str(fi_error)}, retrying...")
+                        logger.debug(f"Full traceback: {traceback.format_exc()}")
+                        
+                        # Retry once more with simplified permutation
+                        retry_success = False
+                        try:
+                            from sklearn.inspection import permutation_importance
+                            result = permutation_importance(
+                                model_obj.model if hasattr(model_obj, 'model') else model_obj,
+                                X_test_data, y_test_data, n_repeats=5, random_state=42, n_jobs=1
+                            )
+                            importances = np.abs(result.importances_mean)
+                            imp_sum = importances.sum()
+                            if imp_sum > 0:
+                                importances = importances / imp_sum
+                            
+                            importance_data = {
+                                'model_name': model_name,
+                                'n_features': X_test_data.shape[1],
+                                'importance_type': 'permutation_retry',
+                                'feature_importance': importances,
+                                'all_methods': {'permutation': importances}
+                            }
+                            results.at[idx, 'Feature_Importance'] = importance_data
+                            importance_success_count += 1
+                            retry_success = True
+                            logger.info(f"✅ RETRY SUCCESS: Computed permutation for {model_name} ({technique})")
+                        except Exception as retry_error:
+                            logger.error(f"Retry also failed for {model_name} ({technique}): {str(retry_error)}")
+                            results.at[idx, 'Feature_Importance'] = None
+                        
+                        if not retry_success:
+                            st.warning(f"⚠️ Could not compute feature importance for {model_name} ({technique}) even after retry")
+                    
+                    # Update progress
+                    progress_fi.progress((idx + 1) / total_models)
+                
+                progress_fi.empty()
+                
+                # Verify all models have importance computed
+                missing_importance = results['Feature_Importance'].isna().sum()
+                if missing_importance > 0:
+                    st.warning(f"⚠️ {missing_importance} out of {total_models} models missing feature importance. Attempting fallback computation...")
+                    fallback_progress = st.progress(0)
+                    
+                    # For any missing, try one more time with fallback approach
+                    missing_rows = results[results['Feature_Importance'].isna()].index
+                    for fallback_count, idx in enumerate(missing_rows):
+                        try:
+                            row = results.loc[idx]
+                            model_obj = row['Model_Object']
+                            model_name = row['Model']
+                            technique = row['Technique']
+                            X_test_data = row['X_Test']
+                            y_test_data = row['y_Test']
+                            
+                            # Try simplified permutation importance
+                            from sklearn.inspection import permutation_importance
+                            result = permutation_importance(
+                                model_obj.model if hasattr(model_obj, 'model') else model_obj,
+                                X_test_data, y_test_data, n_repeats=3, random_state=42, n_jobs=1
+                            )
+                            importances = np.abs(result.importances_mean)
+                            imp_sum = importances.sum()
+                            if imp_sum > 0:
+                                importances = importances / imp_sum
+                            
+                            importance_data = {
+                                'model_name': model_name,
+                                'n_features': X_test_data.shape[1],
+                                'importance_type': 'permutation_fallback',
+                                'feature_importance': importances,
+                                'all_methods': {'permutation': importances}
+                            }
+                            results.at[idx, 'Feature_Importance'] = importance_data
+                            importance_success_count += 1
+                            st.success(f"✅ FALLBACK: Computed importance for {model_name} ({technique})")
+                            logger.info(f"✅ FALLBACK SUCCESS: {model_name} ({technique})")
+                        except Exception as fallback_error:
+                            logger.error(f"Fallback failed for {model_name} ({technique}): {str(fallback_error)}")
+                        
+                        fallback_progress.progress((fallback_count + 1) / len(missing_rows))
+                    
+                    fallback_progress.empty()
+                    
+                    # Final check
+                    still_missing = results['Feature_Importance'].isna().sum()
+                    if still_missing == 0:
+                        st.success(f"✅ All {total_models} models now have feature importance computed!")
+                    else:
+                        st.error(f"❌ Still {still_missing} models missing importance after fallback attempts")
+                else:
+                    st.success(f"✅ Feature importance computed for all {total_models} models!")
                 
                 # Get the best model (sorted by Test_R²)
                 best_idx = results['Test_R²'].idxmax() if len(results) > 0 else 0
@@ -657,7 +1152,7 @@ def training_mode():
             st.session_state.training_complete = True
             
             progress_placeholder.empty()
-            st.success("✅ Training Complete!")
+            st.success("✅ Training & Feature Importance Analysis Complete!")
             
             # Save best models from each paradigm with comprehensive metadata
             try:
@@ -737,7 +1232,7 @@ def training_mode():
         
         except Exception as e:
             st.markdown(f'<div class="error-box"><b>❌ Training Error:</b><br>{str(e)}</div>', unsafe_allow_html=True)
-            logger.error(f"Training error: {str(e)}", component="app")
+            logger.error(f"Training error: {str(e)}")
         finally:
             # Clear training in progress flag
             st.session_state['training_in_progress'] = False
@@ -907,7 +1402,7 @@ def prediction_mode():
             f'<div class="error-box"><b>❌ Error Loading Model</b><br>{str(e)}</div>',
             unsafe_allow_html=True
         )
-        logger.error(f"Error loading model: {str(e)}", component="app")
+        logger.error(f"Error loading model: {str(e)}")
         return
     
     # Step 2: Upload Prediction Data
@@ -943,7 +1438,7 @@ def prediction_mode():
             f'<div class="error-box"><b>❌ Error Loading Prediction Data</b><br>{str(e)}</div>',
             unsafe_allow_html=True
         )
-        logger.error(f"Error loading prediction data: {str(e)}", component="app")
+        logger.error(f"Error loading prediction data: {str(e)}")
         return
     
     # Step 3: Automatic Preprocessing Detection
@@ -1047,7 +1542,7 @@ def prediction_mode():
                 f'<div class="error-box"><b>❌ Prediction Error</b><br>{str(e)}</div>',
                 unsafe_allow_html=True
             )
-            logger.error(f"Prediction error: {str(e)}", component="app")
+            logger.error(f"Prediction error: {str(e)}")
 
 
 # ============================================================================
