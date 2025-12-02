@@ -12,6 +12,7 @@ numpy==2.3.4                            # Numerical computing & arrays
 pandas==2.3.3                           # Data manipulation and analysis
 scikit-learn==1.7.2                     # Machine learning algorithms (PLSR, GBRT, SVR, KRR, GridSearchCV)
 scipy==1.16.3                           # Scientific computing (stats, signal processing, interpolation)
+PyWavelets==1.9.0                       # Wavelet transforms (for feature engineering)
 
 # Web Framework & Visualization
 streamlit==1.51.0                       # Interactive web app framework
@@ -30,10 +31,12 @@ openai>=1.0.0                           # OpenAI API client (ChatGPT)
 
 # For PDF/Report Generation:
 reportlab>=3.6.0                        # PDF generation
+seaborn==0.13.2                         # Statistical data visualization
 
 # For Excel file support:
 openpyxl>=3.1.0                         # Excel file reading (.xlsx)
 xlrd>=2.0.0                             # Excel file reading (.xls)
+et_xmlfile==2.0.0                       # Low-level library for writing OpenXML files.
 
 # For additional data formats:
 pyarrow>=14.0.0                         # Parquet & Arrow data format support
@@ -52,30 +55,46 @@ pyarrow>=14.0.0                         # Parquet & Arrow data format support
 
 # Streamlit & Web Framework Dependencies
 altair==5.5.0                           # Visualization library for Streamlit
+anyio==4.11.0                           # Asynchronous networking and concurrency
 blinker==1.9.0                          # Signal support
 cachetools==6.2.1                       # Caching utilities
 click==8.3.0                            # CLI framework
+distro==1.9.0                           # Linux distribution information
 gitpython==3.1.45                       # Git operations
+h11==0.16.0                             # HTTP/1.1 library
+httpcore==1.0.9                         # Low-level HTTP client
+httplib2==0.31.0                        # HTTP client library
+httpx==0.28.1                           # Async HTTP client
 Jinja2==3.1.6                           # Template engine
+jiter==0.12.0                           # JSON parsing
 jsonschema==4.25.1                      # JSON schema validation
 MarkupSafe==3.0.3                       # Safe string handling
 protobuf>=3.20,<5                       # Protocol buffers
 pydeck==0.9.1                           # Deck.gl bindings for maps
 pytz==2025.2                            # Timezone library
+referencing==0.37.0                     # JSON referencing
 requests==2.32.5                        # HTTP library
+rpds-py==0.28.0                         # Persistent data structures
+sniffio==1.3.1                          # Sniff out which async library is being used
 tenacity==9.1.2                         # Retry library
 toml==0.10.2                            # TOML parser
 tornado==6.5.2                          # Async networking
+typing-inspection==0.4.2                # Runtime type inspection
+uritemplate==4.2.0                      # URI template implementation
 watchdog==6.0.0                         # File system monitoring
 
 # Data & Plotting Dependencies
+annotated-types==0.7.0                  # Reusable types for adding metadata to Python types
 contourpy==1.3.3                        # Contour line calculations
 cycler==0.12.1                          # Cycler for plotting
 fonttools==4.60.1                       # Font handling
 kiwisolver==1.4.9                       # Constraint solving for plotting
+matplotlib==3.10.7                      # Plotting library
 narwhals==2.11.0                        # DataFrame interoperability
 packaging==25.0                         # Package utilities
 pillow==12.0.0                          # Image processing
+pydantic==2.12.4                        # Data validation and settings management
+pydantic_core==2.41.5                   # Core of pydantic
 pyparsing==3.2.5                        # Parsing library
 
 # Network & Security
@@ -94,10 +113,18 @@ tzdata==2025.2                          # Timezone database
 tqdm==4.67.1                            # Progress bars
 
 # Google API Dependencies (for Google Gemini)
+google-ai-generativelanguage==0.6.15    # Google AI Generative Language API
 google-api-core>=2.28.0                 # Google API client core
 google-api-python-client>=2.187.0       # Google API client
 google-auth>=2.43.0                     # Google authentication
 google-auth-httplib2>=0.2.0             # Google auth HTTP support
+googleapis-common-protos==1.72.0        # Google APIs common protos
+grpcio==1.76.0                          # gRPC library
+grpcio-status==1.62.3                   # gRPC status library
+proto-plus==1.26.1                      # Protobuf Plus library
+pyasn1==0.6.1                           # ASN.1 library
+pyasn1_modules==0.4.2                   # ASN.1 modules
+rsa==4.9.1                              # RSA library
 google-ai-generativelanguage>=0.6.0     # Google AI Language library
 googleapis-common-protos>=1.72.0        # Google common protos
 
