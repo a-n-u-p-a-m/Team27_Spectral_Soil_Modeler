@@ -5,11 +5,12 @@ Provides hyperparameter optimization for all regression models using
 GridSearchCV and RandomizedSearchCV approaches.
 """
 
-from sklearn.model_selection import GridSearchCV, RandomizedSearchCV, cross_val_score
+from sklearn.model_selection import GridSearchCV, RandomizedSearchCV, cross_val_score, LeaveOneOut
 from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
 import numpy as np
 import pandas as pd
 import logging
+import traceback
 from typing import Dict, Any, Tuple, Optional
 import warnings
 
@@ -31,12 +32,12 @@ class HyperparameterTuner:
             'n_components': [3, 5, 8, 10, 12, 15, 20]
         },
         'GBRT': {
-            'n_estimators': [50, 100, 150, 200],
-            'learning_rate': [0.001, 0.01, 0.05, 0.1],
-            'max_depth': [3, 4, 5, 6, 7],
-            'min_samples_split': [2, 5, 10],
-            'min_samples_leaf': [1, 2, 4],
-            'subsample': [0.8, 0.9, 1.0]
+            'n_estimators': [50, 100, 150],
+            'learning_rate': [0.01, 0.05, 0.1],
+            'max_depth': [4, 5, 6],
+            'min_samples_split': [5, 10],
+            'min_samples_leaf': [2, 4],
+            'subsample': [0.9, 1.0]
         },
         'SVR': {
             'kernel': ['rbf', 'poly', 'linear'],
@@ -50,8 +51,9 @@ class HyperparameterTuner:
             'gamma': [None, 0.001, 0.01, 0.1, 1.0]
         },
         'Cubist': {
-            'n_rules': [5, 10, 15, 20, 25],
-            'neighbors': [0, 3, 5, 7, 9]
+            'n_estimators': [10, 15, 20, 25, 30],
+            'max_depth': [3, 4, 5, 6],
+            'learning_rate': [0.05, 0.1, 0.15, 0.2]
         }
     }
     
@@ -61,10 +63,10 @@ class HyperparameterTuner:
             'n_components': [5, 10, 15]
         },
         'GBRT': {
-            'n_estimators': [100, 150],
+            'n_estimators': [50, 100],
             'learning_rate': [0.01, 0.1],
-            'max_depth': [4, 5, 6],
-            'min_samples_split': [2, 5],
+            'max_depth': [4, 5],
+            'min_samples_split': [5, 10],
             'subsample': [0.9, 1.0]
         },
         'SVR': {
@@ -79,13 +81,15 @@ class HyperparameterTuner:
             'gamma': [None, 0.01, 0.1]
         },
         'Cubist': {
-            'n_rules': [10, 20],
-            'neighbors': [3, 5]
+            'n_estimators': [10, 20, 30],
+            'max_depth': [4, 5],
+            'learning_rate': [0.1, 0.15]
         }
     }
     
     def __init__(self, model_name: str, cv_folds: int = 5, scoring: str = 'r2',
-                 search_type: str = 'grid', use_small_grid: bool = True, n_iter: int = 20):
+                 search_type: str = 'grid', use_small_grid: bool = True, n_iter: int = 20,
+                 cv_strategy: str = 'k-fold'):
         """
         Initialize hyperparameter tuner.
         
@@ -94,18 +98,21 @@ class HyperparameterTuner:
         model_name : str
             Name of model: 'PLSR', 'GBRT', 'SVR', 'KRR', 'Cubist'
         cv_folds : int, default=5
-            Number of cross-validation folds
+            Number of cross-validation folds (ignored for LOO)
         scoring : str, default='r2'
             Scoring metric: 'r2', 'neg_mean_squared_error', 'neg_mean_absolute_error'
         search_type : str, default='grid'
-            Search type: 'grid' for GridSearchCV, 'random' for RandomizedSearchCV
+            Search strategy: 'grid' for GridSearchCV or 'random' for RandomizedSearchCV
         use_small_grid : bool, default=True
-            Use smaller grid for faster optimization
+            Use smaller parameter grid for faster tuning
         n_iter : int, default=20
             Number of iterations for RandomizedSearchCV
+        cv_strategy : str, default='k-fold'
+            Cross-validation strategy: 'k-fold' or 'leave-one-out'
         """
         self.model_name = model_name
         self.cv_folds = cv_folds
+        self.cv_strategy = cv_strategy.lower()
         self.scoring = scoring
         self.search_type = search_type
         self.use_small_grid = use_small_grid
@@ -121,7 +128,7 @@ class HyperparameterTuner:
         self.best_score = None
         self.cv_results = None
         
-        logger.info(f"HyperparameterTuner initialized for {model_name}")
+        logger.info(f"HyperparameterTuner initialized for {model_name} with cv_strategy={self.cv_strategy}")
     
     
     def tune_model(self, base_model, X_train: np.ndarray, y_train: np.ndarray,
@@ -158,35 +165,42 @@ class HyperparameterTuner:
                 }
             
             if self.search_type == 'random':
+                cv_splitter = self.cv_folds if self.cv_strategy == 'k-fold' else LeaveOneOut()
+                logger.info(f"🔍 RandomizedSearchCV starting for {self.model_name} | cv_strategy={self.cv_strategy} | cv_folds={self.cv_folds}")
                 search = RandomizedSearchCV(
                     base_model,
                     self.param_grid,
                     n_iter=self.n_iter,
-                    cv=self.cv_folds,
+                    cv=cv_splitter,
                     scoring=self.scoring,
                     n_jobs=-1,
                     verbose=1 if verbose else 0,
                     random_state=42
                 )
                 logger.info(f"Starting RandomizedSearchCV for {self.model_name} "
-                          f"with {self.n_iter} iterations")
+                          f"with {self.n_iter} iterations and cv_strategy={self.cv_strategy}")
             else:
+                cv_splitter = self.cv_folds if self.cv_strategy == 'k-fold' else LeaveOneOut()
+                logger.info(f"🔍 GridSearchCV starting for {self.model_name} | cv_strategy={self.cv_strategy} | cv_folds={self.cv_folds} | n_candidates={len(self.param_grid)}")
                 search = GridSearchCV(
                     base_model,
                     self.param_grid,
-                    cv=self.cv_folds,
+                    cv=cv_splitter,
                     scoring=self.scoring,
                     n_jobs=-1,
                     verbose=1 if verbose else 0
                 )
-                logger.info(f"Starting GridSearchCV for {self.model_name}")
+                logger.info(f"Starting GridSearchCV for {self.model_name} with cv_strategy={self.cv_strategy}")
             
             # Perform search
+            logger.info(f"⏳ Running cross-validation search...")
             search.fit(X_train, y_train)
             
             self.best_params = search.best_params_
             self.best_score = search.best_score_
             self.cv_results = search.cv_results_
+            
+            logger.info(f"✅ Search complete! Best {self.model_name} hyperparameters: {self.best_params} | Score: {self.best_score:.4f}")
             
             if verbose:
                 logger.info(f"Best hyperparameters for {self.model_name}: {self.best_params}")
@@ -206,7 +220,8 @@ class HyperparameterTuner:
             }
             
         except Exception as e:
-            logger.error(f"Error during hyperparameter tuning: {str(e)}")
+            logger.error(f"❌ Error during hyperparameter tuning for {self.model_name}: {str(e)}")
+            logger.debug(f"Tuning exception trace: {traceback.format_exc()}", exc_info=True)
             return {
                 'best_params': {},
                 'best_score': None,

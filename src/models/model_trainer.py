@@ -14,10 +14,11 @@ Includes cross-validation and result tracking.
 import numpy as np
 import pandas as pd
 from typing import Dict, List, Tuple, Any
-from sklearn.model_selection import cross_validate
+from sklearn.model_selection import cross_validate, LeaveOneOut
 from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
 import logging
 from pathlib import Path
+from copy import deepcopy
 
 # Import all models
 from .plsr import PLSRModel
@@ -47,7 +48,8 @@ class ModelTrainer:
         best_scores: Best model metrics
     """
     
-    def __init__(self, tune_hyperparameters: bool = False, cv_folds: int = 5):
+    def __init__(self, tune_hyperparameters: bool = False, cv_folds: int = 5, cv_strategy: str = 'k-fold',
+                 search_method: str = 'grid', n_iter: int = 20):
         """
         Initialize ModelTrainer.
         
@@ -56,17 +58,27 @@ class ModelTrainer:
         tune_hyperparameters : bool, default=False
             Whether to perform hyperparameter tuning during training
         cv_folds : int, default=5
-            Number of cross-validation folds for hyperparameter tuning
+            Number of cross-validation folds for hyperparameter tuning (ignored for LOO)
+        cv_strategy : str, default='k-fold'
+            Cross-validation strategy: 'k-fold' or 'leave-one-out'
+        search_method : str, default='grid'
+            Hyperparameter search method: 'grid' for GridSearchCV or 'random' for RandomizedSearchCV
+        n_iter : int, default=20
+            Number of iterations for RandomizedSearchCV (only used if search_method='random')
         """
         self.tune_hyperparameters = tune_hyperparameters
         self.cv_folds = cv_folds
+        self.cv_strategy = cv_strategy.lower()
+        self.search_method = search_method.lower()
+        self.n_iter = n_iter
         self.models = self._initialize_models()
         self.results = None
         self.best_model = None
         self.best_scores = None
         self.cv_results = {}
         logger.info(f"ModelTrainer initialized with 5 algorithms. "
-                   f"Hyperparameter tuning: {tune_hyperparameters}, CV folds: {cv_folds}")
+                   f"Hyperparameter tuning: {tune_hyperparameters}, CV strategy: {self.cv_strategy}, CV folds: {cv_folds}, "
+                   f"Search method: {self.search_method}, n_iter: {n_iter}")
     
     
     def _initialize_models(self) -> Dict:
@@ -80,15 +92,20 @@ class ModelTrainer:
         """
         models = {
             'PLSR': PLSRModel(n_components=10, tune_hyperparameters=self.tune_hyperparameters,
-                             cv_folds=self.cv_folds),
+                             cv_folds=self.cv_folds, cv_strategy=self.cv_strategy,
+                             search_method=self.search_method, n_iter=self.n_iter),
             'GBRT': GBRTModel(n_estimators=100, learning_rate=0.1, max_depth=5,
-                             tune_hyperparameters=self.tune_hyperparameters, cv_folds=self.cv_folds),
+                             tune_hyperparameters=self.tune_hyperparameters, cv_folds=self.cv_folds,
+                             cv_strategy=self.cv_strategy, search_method=self.search_method, n_iter=self.n_iter),
             'KRR': KRRModel(alpha=1.0, kernel='rbf', gamma=None,
-                           tune_hyperparameters=self.tune_hyperparameters, cv_folds=self.cv_folds),
+                           tune_hyperparameters=self.tune_hyperparameters, cv_folds=self.cv_folds,
+                           cv_strategy=self.cv_strategy, search_method=self.search_method, n_iter=self.n_iter),
             'SVR': SVRModel(kernel='rbf', C=100.0, epsilon=0.1,
-                           tune_hyperparameters=self.tune_hyperparameters, cv_folds=self.cv_folds),
+                           tune_hyperparameters=self.tune_hyperparameters, cv_folds=self.cv_folds,
+                           cv_strategy=self.cv_strategy, search_method=self.search_method, n_iter=self.n_iter),
             'Cubist': CubistModel(n_rules=20, neighbors=5,
-                                 tune_hyperparameters=self.tune_hyperparameters, cv_folds=self.cv_folds)
+                                 tune_hyperparameters=self.tune_hyperparameters, cv_folds=self.cv_folds,
+                                 cv_strategy=self.cv_strategy, search_method=self.search_method, n_iter=self.n_iter)
         }
         logger.info(f"Initialized {len(models)} models: {list(models.keys())}")
         return models
@@ -142,6 +159,71 @@ class ModelTrainer:
             # RPD (Residual Prediction Deviation)
             test_rpd = np.std(y_test) / test_rmse if test_rmse > 0 else 0
             
+            # If using LOO CV strategy, also compute LOO CV metrics for training data
+            loo_cv_r2 = None
+            loo_cv_rmse = None
+            if self.cv_strategy == 'leave-one-out':
+                try:
+                    loo = LeaveOneOut()
+                    y_pred_loo = np.zeros_like(y_train, dtype=float)
+                    
+                    for train_idx, test_idx in loo.split(X_train):
+                        X_fold_train, X_fold_test = X_train[train_idx], X_train[test_idx]
+                        y_fold_train = y_train[train_idx]
+                        
+                        # Create fresh model instance for each fold to avoid state contamination
+                        if model_name == 'PLSR':
+                            from .plsr import PLSRModel
+                            model_fold = PLSRModel(n_components=self.models[model_name].n_components,
+                                                   tune_hyperparameters=False, cv_folds=self.cv_folds,
+                                                   cv_strategy=self.cv_strategy,
+                                                   search_method=self.search_method,
+                                                   n_iter=self.n_iter)
+                        elif model_name == 'GBRT':
+                            from .gbrt import GBRTModel
+                            model_fold = GBRTModel(n_estimators=self.models[model_name].n_estimators,
+                                                   tune_hyperparameters=False, cv_folds=self.cv_folds,
+                                                   cv_strategy=self.cv_strategy,
+                                                   search_method=self.search_method,
+                                                   n_iter=self.n_iter)
+                        elif model_name == 'KRR':
+                            from .krr import KRRModel
+                            model_fold = KRRModel(alpha=self.models[model_name].alpha,
+                                                  tune_hyperparameters=False, cv_folds=self.cv_folds,
+                                                  cv_strategy=self.cv_strategy,
+                                                  search_method=self.search_method,
+                                                  n_iter=self.n_iter)
+                        elif model_name == 'SVR':
+                            from .svr import SVRModel
+                            model_fold = SVRModel(kernel=self.models[model_name].kernel,
+                                                  tune_hyperparameters=False, cv_folds=self.cv_folds,
+                                                  cv_strategy=self.cv_strategy,
+                                                  search_method=self.search_method,
+                                                  n_iter=self.n_iter)
+                        elif model_name == 'Cubist':
+                            from .cubist import CubistModel
+                            model_fold = CubistModel(n_rules=self.models[model_name].n_rules,
+                                                     neighbors=self.models[model_name].neighbors,
+                                                     tune_hyperparameters=False, cv_folds=self.cv_folds,
+                                                     cv_strategy=self.cv_strategy,
+                                                     search_method=self.search_method,
+                                                     n_iter=self.n_iter)
+                        else:
+                            logger.warning(f"Unknown model {model_name}, skipping LOO CV")
+                            model_fold = None
+                        
+                        if model_fold is not None:
+                            # Train model on fold
+                            model_fold.train(X_fold_train, y_fold_train)
+                            # Predict on test sample
+                            y_pred_loo[test_idx] = model_fold.predict(X_fold_test)
+                    
+                    loo_cv_r2 = r2_score(y_train, y_pred_loo)
+                    loo_cv_rmse = np.sqrt(mean_squared_error(y_train, y_pred_loo))
+                    logger.info(f"{model_name} LOO CV: R²={loo_cv_r2:.4f}, RMSE={loo_cv_rmse:.4f}")
+                except Exception as loo_err:
+                    logger.warning(f"Could not compute LOO CV metrics for {model_name}: {str(loo_err)}")
+            
             results = {
                 'model': model_name,
                 'train_r2': train_r2,
@@ -151,6 +233,8 @@ class ModelTrainer:
                 'train_mae': train_mae,
                 'test_mae': test_mae,
                 'rpd': test_rpd,
+                'loo_cv_r2': loo_cv_r2,
+                'loo_cv_rmse': loo_cv_rmse,
                 'trained_model': model,
                 'y_pred': y_test_pred
             }
@@ -309,7 +393,7 @@ class ModelTrainer:
     def cross_validate_model(self, model_name: str, X: np.ndarray,
                             y: np.ndarray, cv: int = 5) -> Dict:
         """
-        Perform cross-validation on a model.
+        Perform cross-validation on a model using configured CV strategy.
         
         Parameters
         ----------
@@ -320,7 +404,7 @@ class ModelTrainer:
         y : np.ndarray
             Target data
         cv : int, default=5
-            Number of CV folds
+            Number of CV folds (ignored if cv_strategy='leave-one-out')
             
         Returns
         -------
@@ -335,6 +419,9 @@ class ModelTrainer:
         # Get the sklearn model object for cross_validate
         sklearn_model = model.model
         
+        # Select CV splitter based on strategy
+        cv_splitter = LeaveOneOut() if self.cv_strategy == 'leave-one-out' else cv
+        
         scoring = {
             'r2': 'r2',
             'neg_mse': 'neg_mean_squared_error',
@@ -343,13 +430,13 @@ class ModelTrainer:
         
         cv_results = cross_validate(
             sklearn_model, X, y,
-            cv=cv,
+            cv=cv_splitter,
             scoring=scoring,
             return_train_score=True
         )
         
         self.cv_results[model_name] = cv_results
-        logger.info(f"Cross-validation complete for {model_name}")
+        logger.info(f"Cross-validation complete for {model_name} (cv_strategy={self.cv_strategy})")
         
         return cv_results
     

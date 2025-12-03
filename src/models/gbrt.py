@@ -32,7 +32,8 @@ class GBRTModel:
     
     def __init__(self, n_estimators: int = 100, learning_rate: float = 0.1,
                  max_depth: int = 5, random_state: int = 42,
-                 tune_hyperparameters: bool = False, cv_folds: int = 5):
+                 tune_hyperparameters: bool = False, cv_folds: int = 5, cv_strategy: str = 'k-fold',
+                 search_method: str = 'grid', n_iter: int = 20):
         """
         Initialize GBRT model.
         
@@ -49,7 +50,13 @@ class GBRTModel:
         tune_hyperparameters : bool, default=False
             Whether to tune hyperparameters using cross-validation
         cv_folds : int, default=5
-            Number of cross-validation folds for tuning
+            Number of cross-validation folds for tuning (ignored for LOO)
+        cv_strategy : str, default='k-fold'
+            Cross-validation strategy: 'k-fold' or 'leave-one-out'
+        search_method : str, default='grid'
+            Hyperparameter search method: 'grid' for GridSearchCV or 'random' for RandomizedSearchCV
+        n_iter : int, default=20
+            Number of iterations for RandomizedSearchCV
         """
         self.n_estimators = n_estimators
         self.learning_rate = learning_rate
@@ -57,6 +64,9 @@ class GBRTModel:
         self.random_state = random_state
         self.tune_hyperparameters = tune_hyperparameters
         self.cv_folds = cv_folds
+        self.cv_strategy = cv_strategy
+        self.search_method = search_method.lower()
+        self.n_iter = n_iter
         
         self.best_params = {
             'n_estimators': n_estimators,
@@ -95,16 +105,21 @@ class GBRTModel:
             Trained model
         """
         try:
+            # Log tuning status at the start
+            logger.info(f"GBRT train() called with tune_hyperparameters={self.tune_hyperparameters}, cv_strategy={self.cv_strategy}")
+            
             # Perform hyperparameter tuning if enabled
             if self.tune_hyperparameters:
+                logger.info(f"🔧 TUNING INITIATED for GBRT with cv_strategy={self.cv_strategy}")
                 from .hyperparameter_tuner import HyperparameterTuner
                 
                 tuner = HyperparameterTuner(
                     'GBRT',
                     cv_folds=self.cv_folds,
-                    search_type='random',
-                    use_small_grid=True,
-                    n_iter=10
+                    search_type=self.search_method,
+                    use_small_grid=(self.search_method == 'random'),
+                    n_iter=self.n_iter,
+                    cv_strategy=self.cv_strategy
                 )
                 
                 # Create base model for tuning
@@ -115,14 +130,16 @@ class GBRTModel:
                 
                 if tuning_result['tuned']:
                     self.best_params = tuning_result['best_params']
-                    logger.info(f"Optimal hyperparameters found: {self.best_params}")
+                    logger.info(f"✅ Optimal hyperparameters found: {self.best_params}")
                     self.model = GradientBoostingRegressor(
                         random_state=self.random_state,
                         verbose=0,
                         **self.best_params
                     )
                 else:
-                    logger.warning("Hyperparameter tuning failed, using default parameters")
+                    logger.warning("⚠️ Hyperparameter tuning failed for GBRT, using default parameters")
+            else:
+                logger.info("ℹ️ GBRT training without hyperparameter tuning (tune_hyperparameters=False)")
             
             # Train with selected/tuned parameters
             self.model.fit(X_train, y_train)

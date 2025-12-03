@@ -33,7 +33,8 @@ class SVRModel:
     
     def __init__(self, kernel: str = 'rbf', C: float = 100.0,
                  epsilon: float = 0.1, gamma: str = 'scale',
-                 tune_hyperparameters: bool = False, cv_folds: int = 5):
+                 tune_hyperparameters: bool = False, cv_folds: int = 5,
+                 cv_strategy: str = 'k-fold', search_method: str = 'grid', n_iter: int = 20):
         """
         Initialize SVR model.
         
@@ -50,7 +51,13 @@ class SVRModel:
         tune_hyperparameters : bool, default=False
             Whether to tune hyperparameters using cross-validation
         cv_folds : int, default=5
-            Number of cross-validation folds for tuning
+            Number of cross-validation folds for tuning (ignored for LOO)
+        cv_strategy : str, default='k-fold'
+            Cross-validation strategy: 'k-fold' or 'leave-one-out'
+        search_method : str, default='grid'
+            Hyperparameter search method: 'grid' for GridSearchCV or 'random' for RandomizedSearchCV
+        n_iter : int, default=20
+            Number of iterations for RandomizedSearchCV
         """
         self.kernel = kernel
         self.C = C
@@ -58,6 +65,9 @@ class SVRModel:
         self.gamma = gamma
         self.tune_hyperparameters = tune_hyperparameters
         self.cv_folds = cv_folds
+        self.cv_strategy = cv_strategy
+        self.search_method = search_method.lower()
+        self.n_iter = n_iter
         
         self.best_params = {
             'kernel': kernel,
@@ -106,8 +116,11 @@ class SVRModel:
             
             tuner = HyperparameterTuner(
                 model_name='SVR',
-                use_small_grid=True,
-                cv_folds=self.cv_folds
+                search_type=self.search_method,
+                use_small_grid=(self.search_method == 'random'),
+                n_iter=self.n_iter,
+                cv_folds=self.cv_folds,
+                cv_strategy=self.cv_strategy
             )
             
             # Create base model for tuning

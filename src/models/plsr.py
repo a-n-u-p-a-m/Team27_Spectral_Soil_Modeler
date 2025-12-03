@@ -31,7 +31,7 @@ class PLSRModel:
     """
     
     def __init__(self, n_components: int = 10, tune_hyperparameters: bool = False,
-                 cv_folds: int = 5):
+                 cv_folds: int = 5, cv_strategy: str = 'k-fold', search_method: str = 'grid', n_iter: int = 20):
         """
         Initialize PLSR model.
         
@@ -42,17 +42,27 @@ class PLSRModel:
         tune_hyperparameters : bool, default=False
             Whether to tune hyperparameters using cross-validation
         cv_folds : int, default=5
-            Number of cross-validation folds for tuning
+            Number of cross-validation folds for tuning (ignored for LOO)
+        cv_strategy : str, default='k-fold'
+            Cross-validation strategy: 'k-fold' or 'leave-one-out'
+        search_method : str, default='grid'
+            Hyperparameter search method: 'grid' for GridSearchCV or 'random' for RandomizedSearchCV
+        n_iter : int, default=20
+            Number of iterations for RandomizedSearchCV
         """
         self.n_components = n_components
         self.tune_hyperparameters = tune_hyperparameters
         self.cv_folds = cv_folds
+        self.cv_strategy = cv_strategy
+        self.search_method = search_method.lower()
+        self.n_iter = n_iter
         self.best_n_components = n_components
         self.model = PLSRegression(n_components=n_components, scale=True)
         self.is_trained = False
         self.tuning_results = None
         logger.info(f"PLSR model initialized with n_components={n_components}, "
-                   f"tune_hyperparameters={tune_hyperparameters}")
+                   f"tune_hyperparameters={tune_hyperparameters}, cv_strategy={cv_strategy}, "
+                   f"search_method={search_method}, n_iter={n_iter}")
     
     
     def train(self, X_train: np.ndarray, y_train: np.ndarray) -> 'PLSRModel':
@@ -72,14 +82,21 @@ class PLSRModel:
             Trained model
         """
         try:
+            # Log tuning status at the start
+            logger.info(f"PLSR train() called with tune_hyperparameters={self.tune_hyperparameters}, cv_strategy={self.cv_strategy}")
+            
             # Perform hyperparameter tuning if enabled
             if self.tune_hyperparameters:
+                logger.info(f"🔧 TUNING INITIATED for PLSR with cv_strategy={self.cv_strategy}")
                 from .hyperparameter_tuner import HyperparameterTuner
                 
                 tuner = HyperparameterTuner(
                     'PLSR',
                     cv_folds=self.cv_folds,
-                    use_small_grid=True
+                    search_type=self.search_method,
+                    use_small_grid=(self.search_method == 'random'),
+                    n_iter=self.n_iter,
+                    cv_strategy=self.cv_strategy
                 )
                 
                 # Create base model for tuning
@@ -90,10 +107,12 @@ class PLSRModel:
                 
                 if tuning_result['tuned']:
                     self.best_n_components = tuning_result['best_params'].get('n_components', 10)
-                    logger.info(f"Optimal n_components found: {self.best_n_components}")
+                    logger.info(f"✅ Optimal n_components found: {self.best_n_components}")
                     self.model = PLSRegression(n_components=self.best_n_components, scale=True)
                 else:
-                    logger.warning("Hyperparameter tuning failed, using default parameters")
+                    logger.warning("⚠️ Hyperparameter tuning failed for PLSR, using default parameters")
+            else:
+                logger.info("ℹ️ PLSR training without hyperparameter tuning (tune_hyperparameters=False)")
             
             # Train with selected/tuned parameters
             self.model.fit(X_train, y_train)
