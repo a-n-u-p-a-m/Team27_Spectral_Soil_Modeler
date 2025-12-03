@@ -6,12 +6,10 @@
 3. [ML Pipeline](#ml-pipeline)
 4. [Models & Algorithms](#models--algorithms)
 5. [Data Preprocessing](#data-preprocessing)
-6. [Feature Engineering](#feature-engineering)
-7. [Feature Importance Analysis](#feature-importance-analysis)
-8. [Feature Implementation](#feature-implementation)
-9. [Implementation Details](#implementation-details)
-10. [Application Features](#application-features)
-11. [Setup & Usage](#setup--usage)
+6. [Feature Implementation](#feature-implementation)
+7. [Implementation Details](#implementation-details)
+8. [Application Features](#application-features)
+9. [Setup & Usage](#setup--usage)
 
 ---
 
@@ -19,22 +17,17 @@
 
 **Spectral Soil Modeler** is an advanced machine learning application for predicting soil properties using spectral data. It implements a complete ML pipeline with:
 
-- **30 Model-Technique Combinations**: 5 algorithms × 3 preprocessing techniques × 2 paradigms
-- **6 Feature Engineering Techniques**: Derivatives, Statistical, Polynomial, Spectral Indices, PCA, Wavelets
-- **Dual Training Paradigms**: Standard vs Tuned hyperparameters (parallel execution)
-- **Feature Importance Analysis**: Permutation-based ranking for ALL 30 combinations
-- **Interactive Web UI**: Real-time training, prediction, and comprehensive analytics
-- **AI-Powered Insights**: LLM integration with enhanced context (data analytics + feature engineering + hyperparameters + feature importance)
-- **Comprehensive Analytics**: Multi-dimensional metrics, visualizations, and exports
+- **15 Model-Technique Combinations**: 5 algorithms × 3 preprocessing techniques
+- **Dual Training Paradigms**: Standard vs Tuned hyperparameters
+- **Interactive Web UI**: Real-time training, prediction, and analysis
+- **AI-Powered Insights**: LLM integration for recommendations
+- **Comprehensive Analytics**: Metrics, comparisons, and visualizations
 
 ### Key Statistics
 - **5 ML Algorithms**: PLSR, GBRT, KRR, SVR, Cubist
 - **3 Spectral Techniques**: Reflectance, Absorbance, Continuum Removal
-- **6 Feature Engineering Methods**: Advanced spectral feature extraction
-- **Dual Paradigm Training**: Standard + Tuned (parallel) = 30 total models
-- **Feature Importance**: Computed for all 30 combinations
+- **Dual Paradigm Training**: Standard + Tuned (parallel)
 - **Cross-validation**: 5-fold for robust evaluation
-- **AI Context**: Enhanced with data analytics, FE config, and feature importance
 
 ---
 
@@ -44,26 +37,24 @@
 Project Structure
 ├── soil_modeler/
 │   ├── src/
-│   │   ├── app.py                    # Main Streamlit application with FE UI
-│   │   ├── interface.py              # UI components & FE analytics tab
-│   │   ├── services.py               # Enhanced context builder (FE + FI)
-│   │   ├── preprocessing.py          # Spectral preprocessing + 6 FE methods
+│   │   ├── app.py                    # Main Streamlit application
+│   │   ├── interface.py              # UI components & rendering
+│   │   ├── services.py               # Context builder & report generation
+│   │   ├── preprocessing.py          # Spectral data preprocessing
 │   │   ├── data_loader.py            # Data loading & validation
 │   │   ├── evaluation.py             # Model evaluation metrics
-│   │   ├── model_analyzer.py         # Performance + Feature Importance
+│   │   ├── model_analyzer.py         # Performance analysis
 │   │   ├── chat_interface.py         # AI chat integration
-│   │   ├── system.py                 # Logging, utilities + Excel export
-│   │   ├── .env                      # API keys (Gemini/OpenAI)
+│   │   ├── system.py                 # Logging & utilities
 │   │   └── models/
-│   │       ├── model_trainer.py      # Training orchestration + FI
+│   │       ├── model_trainer.py      # Training orchestration
 │   │       ├── plsr.py               # PLSR implementation
 │   │       ├── gbrt.py               # GBRT implementation
 │   │       ├── krr.py                # KRR implementation
 │   │       ├── svr.py                # SVR implementation
 │   │       ├── cubist.py             # Cubist implementation
 │   │       └── hyperparameter_tuner.py
-│   ├── requirements.txt              # Updated with pywt, seaborn, etc.
-│   └── report.tex                    # LaTeX documentation
+│   └── requirements.txt
 └── README.md
 ```
 
@@ -74,20 +65,6 @@ User Input (CSV Data)
     ↓
 [Data Loading & Validation]
     ↓
-[Data Analytics (Optional)]
-├─ Distribution analysis
-├─ Correlation heatmaps
-├─ Quality metrics
-└─ AI-powered data insights
-    ↓
-[Feature Engineering (Optional - Step 3.5)]
-├─ Spectral Derivatives (1st order)
-├─ Statistical Features (sliding window)
-├─ Polynomial Features (degree 2)
-├─ Spectral Indices (domain-specific)
-├─ PCA (dimensionality reduction)
-└─ Wavelet Features (multi-scale decomposition)
-    ↓
 [Preprocessing Pipeline]
 ├─ Reflectance Transformation
 ├─ Absorbance Transformation (Log-based)
@@ -96,21 +73,15 @@ User Input (CSV Data)
 [Normalization: StandardScaler / MinMaxScaler / RobustScaler]
     ↓
 [Training - Two Paradigms in Parallel]
-├─ Standard Pipeline (fixed hyperparameters) - 15 models
-└─ Tuned Pipeline (optimized hyperparameters) - 15 models
-    ↓
-[Feature Importance Computation]
-└─ Permutation importance for ALL 30 combinations
+├─ Standard Pipeline (fixed hyperparameters)
+└─ Tuned Pipeline (optimized hyperparameters)
     ↓
 [Model Evaluation & Cross-validation]
     ↓
 [Results Display & Analysis]
-├─ Overview with KPIs
-├─ Analytics with filtering
-├─ Feature importance rankings
-├─ Comparison reports (Standard vs Tuned)
-├─ AI-powered recommendations (enhanced context)
-├─ Comprehensive Excel exports
+├─ Comparison reports
+├─ AI-powered recommendations
+├─ Export capabilities
 └─ Prediction interface
 ```
 
@@ -173,10 +144,11 @@ models = {
 
 tuner = HyperparameterTuner(
     model_name='GBRT',
-    cv_folds=5,                   # 5-fold cross-validation
-    search_type='grid',           # 'grid' or 'random'
-    use_small_grid=True,          # Use smaller grid for faster search (DEFAULT)
-    n_iter=20                     # For RandomizedSearchCV only
+    cv_strategy='k-fold',         # 'k-fold' or 'leave-one-out'
+    cv_folds=5,                   # K-fold splits (for k-fold strategy)
+    search_type='grid',           # 'grid' (exhaustive) or 'random' (sampling)
+    n_iter=20,                    # Random samples (for RandomizedSearchCV only)
+    use_small_grid=True           # Use smaller grid for faster search (DEFAULT)
 )
 
 best_params = tuner.tune_model(base_model, X_train, y_train)
@@ -271,17 +243,37 @@ class PLSRModel:
 
 ---
 
-### 5. Cubist
+### 5. Cubist (Ensemble Rule-Based Regression)
 
-**Purpose**: Rule-based model generating interpretable rules
+**Purpose**: Hybrid ensemble combining gradient boosting rules with k-NN smoothing
+
+**Architecture**:
+- **Stage 1**: Gradient Boosting Regressor for rule generation
+- **Stage 2**: k-Nearest Neighbors for instance-based smoothing
+- **Prediction**: 60% ensemble rules + 40% neighbor averaging
+
+**Mathematical Foundation**:
+```python
+# Stage 1: Rule generation via ensemble trees
+F(x) = F_0(x) + Σ(ν · h_m(x))  # Gradient boosting
+
+# Stage 2: Instance-based smoothing
+y_cubist = 0.6 · y_ensemble + 0.4 · mean(y_neighbors)
+```
 
 **Hyperparameters**:
-- `n_rules`: 5-25 (number of rules to generate)
-- `neighbors`: 0-9 (weighted neighbors for instance-based smoothing)
+- `n_estimators`: 80-100 (trees in ensemble)
+- `k_neighbors`: 5-7 (neighbors for smoothing)
+- `learning_rate`: 0.05-0.1 (gradient boosting shrinkage)
+- `max_depth`: 4-5 (tree depth for rules)
 
-**Advantage**: Highly interpretable rule-based predictions
+**Advantages**:
+- Interpretable ensemble rules from gradient boosting
+- Instance-based smoothing reduces overfitting
+- Hybrid approach balances accuracy and interpretability
+- Effective for complex non-linear relationships
 
-**Note**: Implemented as wrapper using tree-based regression (cubist.py)
+**Implementation**: GradientBoostingRegressor + NearestNeighbors (cubist.py)
 
 ---
 
@@ -343,342 +335,6 @@ Result: Normalized features relative to local baseline
 
 ---
 
-## Feature Engineering
-
-### Overview
-
-**NEW in Phase 2**: The application now supports **6 advanced feature engineering techniques** that can be applied before model training to enhance predictive performance.
-
-**Location in UI**: Step 3.5 (between preprocessing configuration and training)
-
-### Available Techniques
-
-#### 1. Spectral Derivatives
-
-**Purpose**: Capture rate of change in spectral reflectance
-
-**Implementation**:
-```python
-def compute_spectral_derivatives(X: np.ndarray, order: int = 1) -> np.ndarray:
-    """
-    Compute first-order derivatives (dR/dλ).
-    
-    Parameters
-    ----------
-    X : np.ndarray
-        Spectral data (n_samples, n_wavelengths)
-    order : int
-        Derivative order (1 for first derivative)
-    
-    Returns
-    -------
-    np.ndarray
-        Derivatives (n_samples, n_wavelengths-1)
-    """
-    return np.diff(X, n=order, axis=1)
-```
-
-**When to use**: 
-- Enhances subtle spectral features
-- Reduces baseline effects
-- Useful for absorption peak detection
-
-**Output**: n_wavelengths - 1 features
-
----
-
-#### 2. Statistical Features
-
-**Purpose**: Extract local statistical properties from spectral windows
-
-**Implementation**:
-```python
-def compute_statistical_features(X: np.ndarray, window_size: int = 10) -> np.ndarray:
-    """
-    Compute statistical features from sliding windows.
-    
-    Features computed:
-    - Mean
-    - Standard deviation
-    - Variance
-    - Skewness (asymmetry)
-    - Kurtosis (tail behavior)
-    
-    Returns
-    -------
-    np.ndarray
-        Statistical features (n_samples, (n_wavelengths-window_size+1)*5)
-    """
-```
-
-**When to use**:
-- Capture local spectral variability
-- Detect anomalies or patterns
-- Useful for noisy data
-
-**Output**: (n_wavelengths - window_size + 1) × 5 features
-
----
-
-#### 3. Polynomial Features
-
-**Purpose**: Create interaction terms between spectral bands
-
-**Implementation**:
-```python
-from sklearn.preprocessing import PolynomialFeatures
-
-poly = PolynomialFeatures(degree=2, include_bias=False)
-X_poly = poly.fit_transform(X)
-```
-
-**When to use**:
-- Capture non-linear relationships
-- Model band interactions
-- Enhance PLSR and linear models
-
-**Warning**: High-dimensional output (n_features² for degree=2)
-
-**Output**: ~n_wavelengths² features (filtered to avoid memory issues)
-
----
-
-#### 4. Spectral Indices
-
-**Purpose**: Compute domain-specific spectral ratios and indices
-
-**Implementation**:
-```python
-def compute_spectral_indices(X: np.ndarray, wavelengths: list = None) -> np.ndarray:
-    """
-    Compute spectral indices.
-    
-    Indices computed:
-    - NDVI-like ratios
-    - Absorption depths
-    - Band ratios
-    - Normalized differences
-    
-    Returns
-    -------
-    np.ndarray
-        Spectral indices (n_samples, n_indices)
-    """
-```
-
-**When to use**:
-- Leverage domain knowledge
-- Create physically meaningful features
-- Reduce dimensionality while preserving information
-
-**Output**: ~10-20 computed indices
-
----
-
-#### 5. PCA (Principal Component Analysis)
-
-**Purpose**: Dimensionality reduction while preserving variance
-
-**Implementation**:
-```python
-from sklearn.decomposition import PCA
-
-pca = PCA(n_components=20, random_state=42)
-X_pca = pca.fit_transform(X)
-```
-
-**When to use**:
-- High-dimensional spectral data
-- Multicollinearity issues
-- Noise reduction
-
-**Output**: 20 principal components (default)
-
-**Advantage**: Orthogonal features, reduced overfitting
-
----
-
-#### 6. Wavelet Features
-
-**Purpose**: Multi-scale spectral decomposition
-
-**Implementation**:
-```python
-import pywt
-
-def compute_wavelet_features(X: np.ndarray, wavelet='db4', level=2) -> np.ndarray:
-    """
-    Perform wavelet decomposition.
-    
-    Parameters
-    ----------
-    wavelet : str
-        Wavelet type ('db4' = Daubechies 4)
-    level : int
-        Decomposition level
-    
-    Returns
-    -------
-    np.ndarray
-        Wavelet coefficients (approximation + details)
-    """
-```
-
-**When to use**:
-- Multi-resolution analysis
-- Feature extraction at different scales
-- Signal denoising
-
-**Output**: Approximation + detail coefficients
-
-**Dependency**: Requires `pywavelets` package
-
----
-
-### Feature Engineering Workflow
-
-```python
-# In app.py - Step 3.5
-
-# User selects techniques via checkboxes
-use_derivatives = st.checkbox("Spectral Derivatives")
-use_statistical = st.checkbox("Statistical Features")
-use_polynomial = st.checkbox("Polynomial Features")
-use_spectral_indices = st.checkbox("Spectral Indices")
-use_pca = st.checkbox("PCA")
-use_wavelet = st.checkbox("Wavelet Features")
-
-# Configuration stored
-feature_engineering_config = {
-    'derivatives': use_derivatives,
-    'statistical': use_statistical,
-    'polynomial': use_polynomial,
-    'spectral_indices': use_spectral_indices,
-    'pca': use_pca,
-    'wavelet': use_wavelet
-}
-
-# Applied before training
-if any(feature_engineering_config.values()):
-    X_train_fe, X_test_fe = apply_feature_engineering(
-        X_train, X_test, feature_engineering_config
-    )
-```
-
-### Analytics Tab
-
-**NEW**: Feature Engineering tab in Data Analytics showing:
-- Original vs engineered feature distributions
-- Feature count comparison
-- Dimensionality impact
-- Correlation changes
-- Interactive visualizations
-
----
-
-## Feature Importance Analysis
-
-### Overview
-
-**NEW in Phase 2**: The application now computes **feature importance for ALL 30 model-technique combinations** using permutation importance.
-
-**Availability**: Results → Model Details Tab → Feature Importance section
-
-### Implementation
-
-#### Permutation Importance
-
-**Method**: Measure performance drop when feature values are randomly shuffled
-
-**Algorithm**:
-```python
-def compute_feature_importance(model, X_train, X_test, y_train, y_test, 
-                               model_name="Model") -> Dict[str, Any]:
-    """
-    Compute permutation-based feature importance.
-    
-    Process:
-    1. Compute baseline R² on test set
-    2. For each feature:
-       a. Shuffle feature values randomly
-       b. Compute new R² with shuffled feature
-       c. Importance = baseline_R² - shuffled_R²
-    3. Rank features by importance
-    
-    Returns
-    -------
-    Dict containing:
-    - 'importances': Array of importance scores
-    - 'top_features': Top 20 features ranked
-    - 'feature_names': All feature names
-    - 'baseline_score': Original R²
-    """
-```
-
-**Interpretation**:
-- **High importance**: Feature strongly contributes to predictions
-- **Low/negative importance**: Feature adds noise or redundancy
-- **Zero importance**: Feature has no impact
-
-### Feature Rankings
-
-**Output Format**:
-```python
-{
-    'Model': 'GBRT',
-    'Technique': 'Absorbance',
-    'Paradigm': 'Tuned',
-    'Top Features': [
-        ('wavelength_1500', 0.0823),
-        ('wavelength_1720', 0.0651),
-        ('wavelength_2100', 0.0543),
-        ...
-    ],
-    'Total Features': 350,
-    'Baseline R²': 0.8234
-}
-```
-
-### Use Cases
-
-1. **Feature Selection**: Identify most predictive wavelengths
-2. **Model Interpretation**: Understand which bands matter
-3. **Dimensionality Reduction**: Remove low-importance features
-4. **Domain Validation**: Verify physically meaningful features
-5. **Comparison**: Compare feature importance across paradigms
-
-### Visualization
-
-**In Results Dashboard**:
-- Bar charts of top 20 features
-- Heatmaps across all 30 combinations
-- Wavelength importance profiles
-- Model-specific rankings
-
-### Integration with AI Context
-
-**Enhanced LLM Context**:
-```python
-# In services.py - build_llm_context()
-
-context += f"""
-FEATURE IMPORTANCE ANALYSIS:
-- Top 3 features for {model_name}:
-  1. {feature_1} (importance: {score_1:.4f})
-  2. {feature_2} (importance: {score_2:.4f})
-  3. {feature_3} (importance: {score_3:.4f})
-- Most consistent feature across all models: {most_consistent}
-- Feature importance available for all 30 combinations
-"""
-```
-
-**AI can now answer**:
-- "Which spectral bands are most important?"
-- "Does feature importance differ between Standard and Tuned?"
-- "Are the important features physically meaningful?"
-
----
-
 ## Feature Implementation
 
 ### 1. Dual Paradigm Training
@@ -702,132 +358,60 @@ results_tuned = trainer_tuned.train(X_train, y_train, X_test, y_test)
 
 ---
 
-### 2. AI-Powered Insights (Enhanced)
+### 2. AI-Powered Insights
 
 **What**: LLM-based analysis using Google Generative AI or OpenAI
 
-**Enhanced Context Provided (NEW)**:
-- **Data Analytics**: Distribution, correlation, quality metrics
-- **Training results**: All 30 model-technique-paradigm combinations
-- **Performance metrics**: R², RMSE, MAE, RPD by algorithm
-- **Hyperparameters**: Tuned values for all 15 tuned models
-- **Feature Engineering Config**: Which techniques were applied
-- **Feature Importance**: Top features for all 30 combinations
-- **Consistency analysis**: Std Dev across techniques and paradigms
-- **Best/worst performing combinations**
-
-**Context Size**: ~10,000+ tokens for Comparison mode (most comprehensive)
+**Context Provided**:
+- Training results (all 15 model-technique combinations)
+- Performance metrics by algorithm
+- Consistency analysis (Std Dev across techniques)
+- Data characteristics
+- Best/worst performing combinations
 
 **Features**:
 ```python
-# Conversational AI with Enhanced Understanding
-- "Which spectral bands are most important for my data?"
-- "Should I use feature engineering for this dataset?"
-- "How does Tuned paradigm improve over Standard?"
-- "Which preprocessing technique works best with GBRT?"
-- "Are the feature importance results physically meaningful?"
+# Conversational AI
+- Ask questions about model performance
+- Get recommendations on feature engineering
+- Understand why certain models perform better
 
 # Automated Report Generation
-- Comparison reports (Standard vs Tuned with FE + FI context)
-- Feature engineering impact analysis
-- Hyperparameter tuning effectiveness
-- Feature importance summaries
+- Comparison reports (Standard vs Tuned)
+- Summary statistics
+- Improvement analysis
 - Production recommendations
 
-# Example Enhanced Question:
-"Which model is most consistent across techniques and why?"
-→ AI analyzes:
-  - Std Dev across all 3 techniques
-  - Feature importance consistency
-  - Hyperparameter sensitivity
-  - Preprocessing interactions
-→ Recommends model with:
-  - Lowest variance across techniques
-  - Stable feature importance
-  - Robust hyperparameters
-```
-
-**AI Context Architecture**:
-```
-Standard Mode Context:
-├─ Data analytics (if available)
-├─ Training results (15 combinations)
-├─ Feature importance (15 combinations)
-└─ ~5,000 tokens
-
-Tuned Mode Context:
-├─ Data analytics (if available)
-├─ Training results (15 combinations)
-├─ Hyperparameters (15 sets)
-├─ Feature importance (15 combinations)
-└─ ~7,000 tokens
-
-Comparison Mode Context (MOST COMPREHENSIVE):
-├─ Data analytics (NEW - consistent across paradigms)
-├─ Training results (30 combinations)
-├─ Feature importance (30 combinations)
-├─ Algorithm performance analysis
-├─ Paradigm comparison metrics
-└─ ~10,000+ tokens
+# Example Question:
+"Which model is most consistent across techniques?"
+→ AI analyzes Std Dev across all techniques
+→ Recommends model with lowest variance
 ```
 
 ---
 
-### 3. Comprehensive Analytics Dashboard (Enhanced)
+### 3. Comprehensive Analytics Dashboard
 
 **Tabs in Results View**:
 
-1. **Overview**: KPIs, top models, paradigm comparisons
-2. **Analytics**: Detailed metrics with advanced filtering
-   - Filter by model, technique, or paradigm
-   - Sort by any metric
-   - Interactive visualizations
-   - Download filtered results
+1. **Overview**: KPIs, top models, comparisons
+2. **Analytics**: Detailed metrics, filtering, ranking
 3. **Model Details**: Per-model performance breakdown
-   - Hyperparameter values (Tuned paradigm)
-   - Cross-validation scores
-   - **Feature Importance rankings (NEW)**
-   - Residual analysis
-4. **Comparison** (when Both paradigm): Side-by-side analysis
-   - Standard vs Tuned metrics
-   - Improvement percentages
-   - Cost-benefit analysis
-   - Recommendation for production
+4. **Comparison** (when 2 paradigms): Side-by-side analysis
 5. **Reports**: AI-generated insights & recommendations
-   - Enhanced with FE + FI context
-   - Automated summaries
-   - Actionable recommendations
-6. **Export**: Multiple export formats
-   - **CSV**: Basic metrics
-   - **Markdown**: Formatted reports
-   - **Excel (NEW)**: Multi-sheet comprehensive export
-     - Sheet 1: Model Results
-     - Sheet 2: Feature Importance (top 20 per model)
-     - Sheet 3: Test Predictions & Residuals
-     - Sheet 4: Feature Engineering Config
-     - Sheet 5: Summary Statistics
+6. **Export**: Download results as CSV/Markdown
 
 ---
 
-### 4. Model Inspection & Visualization (Enhanced)
+### 4. Model Inspection & Visualization
 
 **Available Visualizations**:
-- **Model performance scatter plots** (R² vs RMSE)
-- **Residual plots** (predicted vs actual)
-- **Feature importance bar charts (NEW)**: Top 20 features per model
-- **Feature importance heatmaps (NEW)**: Across all 30 combinations
-- **Cross-validation score distributions**
-- **Technique comparison bar charts**
-- **Algorithm consistency analysis**
-- **Paradigm comparison charts** (Standard vs Tuned)
-- **Data Analytics Tab (NEW)**:
-  - Distribution histograms & box plots
-  - Correlation heatmaps
-  - Data quality metrics
-  - Feature Engineering analytics
-    - Original vs engineered feature distributions
-    - Dimensionality impact
-    - Correlation changes
+- Model performance scatter plots
+- Residual plots
+- Feature importance (tree-based models)
+- Cross-validation score distributions
+- Technique comparison bar charts
+- Algorithm consistency analysis
 
 ---
 
@@ -842,11 +426,147 @@ Comparison Mode Context (MOST COMPREHENSIVE):
 
 ---
 
+## Cross-Validation Strategy
+
+### Overview
+
+The application supports two configurable cross-validation strategies for robust model evaluation:
+
+1. **K-Fold Cross-Validation** (Default): Standard k-fold with configurable splits
+2. **Leave-One-Out Cross-Validation** (LOO): Maximum robustness, one sample held out at a time
+
+### K-Fold CV (Default)
+
+```python
+cv_strategy = 'k-fold'
+cv_folds = 5  # 5-fold CV (default)
+
+# Process:
+# Split training data into 5 folds
+# For each fold:
+#   ├─ Train on 4 folds
+#   ├─ Evaluate on 1 fold
+#   └─ Record metrics
+# Average results from all 5 folds
+```
+
+**Characteristics**:
+- Fast training
+- Suitable for larger datasets
+- Standard approach, well-studied
+- Less computational overhead
+
+### Leave-One-Out CV
+
+```python
+cv_strategy = 'leave-one-out'
+
+# Process:
+# For each sample in training data:
+#   ├─ Remove sample from training
+#   ├─ Train model on remaining samples
+#   ├─ Predict removed sample
+#   ├─ Evaluate prediction error
+#   └─ Record metrics
+# Average results across all samples
+```
+
+**Characteristics**:
+- Maximum robustness (each sample validated by model never trained on it)
+- Comprehensive but computationally expensive
+- Better for smaller datasets
+- Generates LOO CV metrics: LOO_CV_Test_R², LOO_CV_Test_RMSE
+
+### Test Set Evaluation
+
+Both strategies evaluate models on the held-out test set:
+- **Test_R²**: Coefficient of determination on test set
+- **Test_RMSE**: Root mean squared error on test set
+- **Test_MAE**: Mean absolute error on test set
+
+When LOO CV is enabled, additional metrics are computed:
+- **LOO_CV_Test_R²**: LOO CV metric computed on test set (superior validation)
+- **LOO_CV_Test_RMSE**: LOO CV error on test set
+
+### Feature Importance Prediction Source
+
+When LOO CV is enabled, feature importance analysis automatically uses LOO CV Test predictions:
+```python
+# Auto-detection in Feature Importance tab
+loo_cv_predictions = results_row.get('LOO_CV_Test_Predictions')
+if loo_cv_predictions is not None:
+    predictions = loo_cv_predictions          # Use LOO CV
+    prediction_source = "Leave-One-Out CV"
+else:
+    predictions = results_row.get('Predictions')  # Use standard
+    prediction_source = "Standard Test Set"
+```
+
+---
+
 ## Hyperparameter Tuning Strategy
 
 ### Overview
 
-The application uses **GridSearchCV** and **RandomizedSearchCV** (not Bayesian optimization) for finding optimal hyperparameters in the Tuned paradigm.
+The application uses **GridSearchCV** and **RandomizedSearchCV** for finding optimal hyperparameters in the Tuned paradigm. Both methods respect the selected CV strategy (K-Fold or LOO).
+
+### Search Methods
+
+#### GridSearchCV (Exhaustive Search)
+
+Evaluates **EVERY** combination in the parameter grid:
+
+```python
+search = GridSearchCV(
+    base_model,
+    param_grid,
+    cv=cv_strategy,           # 'k-fold' or LeaveOneOut()
+    scoring='r2',
+    n_jobs=-1
+)
+```
+
+**Characteristics**:
+- Exhaustive evaluation of all combinations
+- Guarantees finding best combination in the grid
+- Time complexity: O(|grid| × |cv_folds|)
+- Example: GBRT 48 combos × 5 CV folds = 240 model trainings
+- Best for: Small parameter spaces (PLSR, KRR, Cubist)
+
+#### RandomizedSearchCV (Stochastic Search)
+
+Randomly samples `n_iter` combinations from the parameter space:
+
+```python
+search = RandomizedSearchCV(
+    base_model,
+    param_distributions,
+    n_iter=20,                # Only evaluate 20 random samples
+    cv=cv_strategy,           # 'k-fold' or LeaveOneOut()
+    scoring='r2',
+    n_jobs=-1,
+    random_state=42
+)
+```
+
+**Characteristics**:
+- Random sampling of combinations (much faster)
+- Approximates exhaustive search results
+- Time complexity: O(n_iter × |cv_folds|) - constant, not exponential
+- Example: GBRT 20 random combos × 5 CV folds = 100 model trainings (10x faster!)
+- Best for: Large parameter spaces with diminishing returns
+
+### Search Method Comparison
+
+| Aspect | GridSearchCV | RandomizedSearchCV |
+|--------|--------------|-------------------|
+| **Search Type** | Exhaustive | Random sampling |
+| **Parameter Combos** | ALL (complete) | n_iter samples |
+| **Time** | Longer | Faster |
+| **GBRT Example** | 48 combos | 20 combos |
+| **Guarantee** | Finds best combo | Approximation |
+| **Best For** | Small param spaces | Large param spaces |
+| **Use In App** | `search_type='grid'` | `search_type='random'` |
 
 ### Architecture
 
@@ -957,22 +677,30 @@ class HyperparameterTuner:
             # Total: 3×2×3 = 18 combinations (vs 75!)
         },
         'Cubist': {
-            'n_rules': [10, 20],                                # 2 values
-            'neighbors': [3, 5]                                 # 2 values
-            # Total: 2×2 = 4 combinations (vs 25!)
+            'n_estimators': [80, 100],                          # 2 values
+            'k_neighbors': [5, 7],                              # 2 values
+            'learning_rate': [0.05, 0.1],                       # 2 values
+            'max_depth': [4, 5]                                 # 2 values
+            # Total: 2×2×2×2 = 16 combinations (vs 100+!)
         }
     }
     
     def tune_model(self, base_model, X_train, y_train):
         """Tune model hyperparameters."""
         
+        # Select CV strategy
+        if self.cv_strategy == 'leave-one-out':
+            cv_folds = LeaveOneOut()
+        else:
+            cv_folds = self.cv_folds  # k-fold (default: 5)
+        
         if self.search_type == 'random':
             # RandomizedSearchCV - faster, random sampling
             search = RandomizedSearchCV(
                 base_model,
                 self.param_grid,
-                n_iter=20,              # Only 20 random samples
-                cv=5,                   # 5-fold cross-validation
+                n_iter=self.n_iter,     # Random samples (default: 20)
+                cv=cv_folds,            # K-fold or LOO
                 scoring='r2',
                 n_jobs=-1,              # Use all cores
                 random_state=42
@@ -983,7 +711,7 @@ class HyperparameterTuner:
             search = GridSearchCV(
                 base_model,
                 self.param_grid,
-                cv=5,                   # 5-fold cross-validation
+                cv=cv_folds,            # K-fold or LOO
                 scoring='r2',
                 n_jobs=-1,              # Parallel computation
                 verbose=1
@@ -1069,12 +797,12 @@ KRR (18 combinations):
 ├─ 18 combinations × 5 CV folds = 90 model trainings
 └─ Time: ~12 seconds
 
-Cubist (4 combinations):
-├─ 4 combinations × 5 CV folds = 20 model trainings
-└─ Time: ~2 seconds
+Cubist (16 combinations):
+├─ 16 combinations × 5 CV folds = 80 model trainings
+└─ Time: ~8 seconds
 
-TOTAL with SMALL GRID: ~96 seconds (~1.6 minutes) ✅
-       with FULL GRID: ~30-40 minutes (2,160 + 225 + 75 + 25 = 2,485 combinations)
+TOTAL with SMALL GRID: ~122 seconds (~2 minutes) ✅
+       with FULL GRID: ~30-40 minutes (2,160 + 225 + 75 + 100+ = 2,560+ combinations)
 
 ---
 
@@ -1086,58 +814,37 @@ Comparison of Total Grid Sizes:
 | GBRT | 2,160 | 48 | 98% ✅ |
 | SVR | 225 | 16 | 93% ✅ |
 | KRR | 75 | 18 | 76% ✅ |
-| Cubist | 25 | 4 | 84% ✅ |
-| **TOTAL** | **2,492** | **89** | **96% Reduction** |
+| Cubist | 100+ | 16 | 84%+ ✅ |
+| **TOTAL** | **2,567+** | **101** | **96% Reduction** |
 ```
 
 ---
 
 ## Implementation Details
 
-### 1. AI Integration (How It Works) - ENHANCED
+### 1. AI Integration (How It Works)
 
 #### Architecture
 
 ```
 User Question / Training Results
     ↓
-[ContextBuilder] - Builds COMPREHENSIVE context (NEW: Enhanced)
-    ├─ Data Analytics (NEW)
-    │   ├─ Distribution statistics
-    │   ├─ Correlation analysis
-    │   └─ Data quality metrics
-    ├─ Feature Engineering Config (NEW)
-    │   ├─ Applied techniques
-    │   ├─ Dimensionality changes
-    │   └─ Feature statistics
-    ├─ Training results (15 or 30 combinations)
-    │   ├─ All performance metrics
-    │   ├─ Cross-validation scores
-    │   └─ Paradigm comparisons
-    ├─ Hyperparameters (NEW - for Tuned paradigm)
-    │   ├─ Best parameters found
-    │   ├─ Search space explored
-    │   └─ CV scores during tuning
-    ├─ Feature Importance (NEW - all combinations)
-    │   ├─ Top 20 features per model
-    │   ├─ Importance scores
-    │   └─ Consistency across paradigms
-    └─ Algorithm performance analysis
-        ├─ Mean metrics by algorithm
-        ├─ Consistency (Std Dev)
-        └─ Best/worst combinations
+[ContextBuilder] - Builds comprehensive context
+    ├─ Training results (all 15 combinations)
+    ├─ Data statistics
+    ├─ Model performance metrics
+    └─ Historical comparison data
     ↓
 [AIExplainer / ExplainerWithCache] - Interfaces with LLM
     ├─ Detects AI provider (Google Generative AI / OpenAI)
-    ├─ Validates API key (.env file)
+    ├─ Validates API key
     ├─ Implements response caching
     └─ Handles rate limiting & errors
     ↓
-[LLM (Gemini or ChatGPT)] - Generates insights with RICH context
-    ├─ Analyzes ~10,000+ tokens of context
-    ├─ Understands FE + FI + hyperparameters
-    ├─ Generates data-driven recommendations
-    └─ Answers complex questions
+[LLM (Gemini or ChatGPT)] - Generates insights
+    ├─ Analyzes context
+    ├─ Generates recommendations
+    └─ Answers specific questions
     ↓
 [Response] - Formatted result to user
 ```
@@ -1177,119 +884,34 @@ class ExplainerWithCache:
         return response
 ```
 
-#### Enhanced Context Building Example
+#### Context Building Example
 
 ```python
-# In services.py - ContextBuilder class (ENHANCED)
-def build_llm_context(results_df, raw_data, target_col, paradigm="Standard",
-                     data_analytics_context=None,           # NEW
-                     feature_engineering_config=None,       # NEW
-                     feature_engineering_data=None,         # NEW
-                     hyperparameters_context=None,          # NEW
-                     feature_importance_data=None):         # NEW
-    """Build COMPREHENSIVE context for AI with ALL available information."""
+# In services.py - ContextBuilder class
+def build_training_context(results_df, raw_data, target_col, paradigm="Standard"):
+    """Build comprehensive context for AI."""
+    context = f"""
+    TRAINING PARADIGM: {paradigm}
     
-    context_parts = []
+    DATA OVERVIEW:
+    - Samples: {len(raw_data)}
+    - Features: {raw_data.shape[1]}
+    - Target: {target_col}
     
-    # 1. Data Analytics Context (NEW)
-    if data_analytics_context:
-        context_parts.extend([
-            "DATA ANALYTICS:",
-            f"- Distribution: {data_analytics_context['distribution_summary']}",
-            f"- Correlation: Top correlated features with target",
-            f"- Quality: {data_analytics_context['quality_metrics']}",
-            ""
-        ])
+    TRAINING RESULTS (15 model-technique combinations):
+    - Best R²: {results_df['Test_R²'].max():.4f}
+    - Mean R²: {results_df['Test_R²'].mean():.4f}
+    - Models tested: {', '.join(results_df['Model'].unique())}
+    - Techniques used: {', '.join(results_df['Technique'].unique())}
     
-    # 2. Feature Engineering Context (NEW)
-    if feature_engineering_config and any(feature_engineering_config.values()):
-        context_parts.extend([
-            "FEATURE ENGINEERING APPLIED:",
-            ""
-        ])
-        if feature_engineering_config.get('derivatives'):
-            context_parts.append("✓ Spectral Derivatives (1st order)")
-        if feature_engineering_config.get('statistical'):
-            context_parts.append("✓ Statistical Features (sliding window)")
-        if feature_engineering_config.get('polynomial'):
-            context_parts.append("✓ Polynomial Features (degree 2)")
-        if feature_engineering_config.get('spectral_indices'):
-            context_parts.append("✓ Spectral Indices (domain-specific)")
-        if feature_engineering_config.get('pca'):
-            context_parts.append("✓ PCA (dimensionality reduction)")
-        if feature_engineering_config.get('wavelet'):
-            context_parts.append("✓ Wavelet Features (multi-scale)")
-        
-        if feature_engineering_data:
-            context_parts.append(
-                f"- Original features: {feature_engineering_data['original_features']}"
-            )
-            context_parts.append(
-                f"- Engineered features: {feature_engineering_data['engineered_features']}"
-            )
-            context_parts.append("")
+    PERFORMANCE BY ALGORITHM:
+    {generate_algorithm_performance_section(results_df)}
     
-    # 3. Training Paradigm & Results
-    context_parts.extend([
-        f"TRAINING PARADIGM: {paradigm}",
-        "",
-        "DATA OVERVIEW:",
-        f"- Samples: {len(raw_data)}",
-        f"- Features: {raw_data.shape[1]}",
-        f"- Target: {target_col}",
-        "",
-        f"TRAINING RESULTS ({len(results_df)} model combinations):",
-        f"- Best R²: {results_df['Test_R²'].max():.4f}",
-        f"- Mean R²: {results_df['Test_R²'].mean():.4f}",
-        f"- Models tested: {', '.join(results_df['Model'].unique())}",
-        f"- Techniques used: {', '.join(results_df['Technique'].unique())}",
-        ""
-    ])
-    
-    # 4. Hyperparameters Context (NEW - for Tuned paradigm)
-    if hyperparameters_context and paradigm == "Tuned":
-        context_parts.extend([
-            "HYPERPARAMETER TUNING RESULTS:",
-            ""
-        ])
-        for model_name, params in hyperparameters_context.items():
-            context_parts.append(f"{model_name}:")
-            for param, value in params.items():
-                context_parts.append(f"  - {param}: {value}")
-            context_parts.append("")
-    
-    # 5. Feature Importance Context (NEW - all combinations)
-    if feature_importance_data:
-        context_parts.extend([
-            "FEATURE IMPORTANCE ANALYSIS:",
-            ""
-        ])
-        for combo_name, importance_info in feature_importance_data.items():
-            context_parts.append(f"{combo_name}:")
-            top_features = importance_info['top_features'][:3]
-            for feat_name, importance_score in top_features:
-                context_parts.append(
-                    f"  - {feat_name}: {importance_score:.4f}"
-                )
-            context_parts.append("")
-    
-    # 6. Performance by Algorithm
-    context_parts.extend([
-        "PERFORMANCE BY ALGORITHM:",
-        generate_algorithm_performance_section(results_df),
-        "",
-        "TOP MODELS:",
-        generate_top_models_section(results_df)
-    ])
-    
-    return "\n".join(context_parts)
+    TOP MODELS:
+    {generate_top_models_section(results_df)}
+    """
+    return context
 ```
-
-**Context Size Comparison**:
-- **Old (Phase 1)**: ~3,000 tokens (training results only)
-- **New (Phase 2 - Standard)**: ~5,000 tokens (+data analytics, +FI)
-- **New (Phase 2 - Tuned)**: ~7,000 tokens (+hyperparameters)
-- **New (Phase 2 - Comparison)**: ~10,000+ tokens (all 30 combinations + FI)
 
 #### Chat Interface Features
 
@@ -2048,100 +1670,26 @@ Target_Property,Band_1,Band_2,...,Band_2150
 
 ---
 
-## Phase 2 Enhancements Summary (NEW)
-
-### What's New in Phase 2
-
-This phase adds **comprehensive feature engineering, feature importance analysis, and enhanced AI integration** to the existing ML pipeline.
-
-#### 1. Feature Engineering (6 Methods)
-- **Spectral Derivatives**: 1st-order rate of change
-- **Statistical Features**: Sliding window statistics (mean, std, var, skew, kurtosis)
-- **Polynomial Features**: Degree-2 interactions between bands
-- **Spectral Indices**: Domain-specific ratios and indices
-- **PCA**: Dimensionality reduction (20 components)
-- **Wavelet Features**: Multi-scale decomposition (db4, level 2)
-
-**Impact**: Can improve model performance by 5-20% depending on data characteristics
-
-#### 2. Feature Importance Analysis
-- **Method**: Permutation importance for ALL 30 combinations
-- **Output**: Top 20 features ranked by importance score
-- **Visualization**: Bar charts and heatmaps
-- **Use Cases**: Feature selection, model interpretation, wavelength identification
-
-#### 3. Enhanced AI Context
-- **Data Analytics**: Distribution, correlation, quality metrics
-- **FE Configuration**: Applied techniques and dimensionality changes
-- **Hyperparameters**: Tuned values for all 15 tuned models
-- **Feature Importance**: Top features for all 30 combinations
-- **Context Size**: Up to 10,000+ tokens (3x increase)
-
-#### 4. Comprehensive Export System
-- **CSV**: Basic metrics (existing)
-- **Markdown**: Formatted reports (existing)
-- **Excel (NEW)**: Multi-sheet workbooks with:
-  - Model Results
-  - Feature Importance (top 20 per model)
-  - Test Predictions & Residuals
-  - Feature Engineering Config
-  - Summary Statistics
-
-#### 5. Enhanced Analytics Dashboard
-- **NEW Tab**: Feature Engineering analytics in Data Analytics section
-- **Feature Importance Tab**: Rankings and visualizations for all models
-- **Enhanced Model Details**: Now includes FI alongside hyperparameters
-- **Interactive Visualizations**: Plotly-based charts with filtering
-
-### Code Changes Summary
-
-| File | Lines Added | Key Features |
-|------|-------------|--------------|
-| `app.py` | +495 | FE UI (Step 3.5), checkboxes for 6 techniques |
-| `interface.py` | +956 | FE analytics tab, FI visualizations |
-| `preprocessing.py` | +301 | Statistical features computation |
-| `model_analyzer.py` | +140 | Permutation importance calculation |
-| `services.py` | +275 | Enhanced LLM context building |
-| `system.py` | +328 | Comprehensive Excel export |
-| **Total** | **+2,495** | **All Phase 2 features** |
-
-### Dependencies Added
-- `pywt` (PyWavelets 1.9.0): Wavelet transformations
-- `seaborn` (0.13.2): Statistical visualizations
-- `matplotlib` (3.10.7): Plotting backend
-- Additional transitive dependencies
-
----
-
 ## Key Technical Highlights
 
-### GridSearchCV (Not Bayesian Optimization)
+### Bayesian Optimization
 
 ```python
 # Used for hyperparameter tuning in "Tuned" paradigm
-from sklearn.model_selection import GridSearchCV
+from skopt import gp_minimize
 
-# Example: GBRT with small grid
-param_grid = {
-    'n_estimators': [100, 150],
-    'learning_rate': [0.01, 0.1],
-    'max_depth': [4, 5, 6],
-    'min_samples_split': [2, 5],
-    'subsample': [0.9, 1.0]
-}
+def objective(params):
+    model = build_model(*params)
+    score = cross_val_score(model, X_train, y_train, cv=5)
+    return -score.mean()  # Minimize
 
-search = GridSearchCV(
-    base_model,
-    param_grid,
-    cv=5,                   # 5-fold cross-validation
-    scoring='r2',
-    n_jobs=-1,              # Parallel computation
-    verbose=1
+result = gp_minimize(
+    objective,
+    space=param_space,
+    n_calls=100,          # 100 iterations per model
+    n_initial_points=10,
+    random_state=42
 )
-
-search.fit(X_train, y_train)
-best_params = search.best_params_
-best_score = search.best_score_
 ```
 
 ### Cross-Validation Strategy
@@ -2149,7 +1697,6 @@ best_score = search.best_score_
 - **CV Folds**: 5-fold cross-validation
 - **Purpose**: Estimate generalization error
 - **Used for**: Hyperparameter tuning, model selection
-- **Computational Cost**: Each param combination tested 5 times
 
 ### Performance Metrics Explained
 
@@ -2160,42 +1707,33 @@ best_score = search.best_score_
 
 ---
 
-## File Descriptions (Updated)
+## File Descriptions
 
-| File | Purpose | Phase 2 Changes |
-|------|---------|----------------|
-| `app.py` | Main Streamlit app, UI orchestration | +FE UI (Step 3.5) |
-| `interface.py` | UI components, dashboards, visualizations | +FE analytics tab, +FI visualizations |
-| `services.py` | Context building, report generation, AI integration | +Enhanced LLM context (FE+FI+HP) |
-| `preprocessing.py` | Spectral transformations, normalization | +6 FE methods |
-| `models/model_trainer.py` | Training orchestration, 30 combinations | +FI computation |
-| `models/*.py` | Individual model implementations | No changes |
-| `evaluation.py` | Metrics computation, result analysis | No changes |
-| `data_loader.py` | CSV loading, data validation | No changes |
-| `model_analyzer.py` | Performance analysis, comparisons | +Permutation importance |
-| `chat_interface.py` | LLM integration, conversational AI | No changes |
-| `system.py` | Logging, utilities, persistence | +Comprehensive Excel export |
-| `.env` | API keys configuration | NEW |
-| `requirements.txt` | Dependencies | +PyWavelets, seaborn, matplotlib |
+| File | Purpose |
+|------|---------|
+| `app.py` | Main Streamlit app, UI orchestration |
+| `interface.py` | UI components, dashboards, visualizations |
+| `services.py` | Context building, report generation, AI integration |
+| `preprocessing.py` | Spectral transformations, normalization |
+| `models/model_trainer.py` | Training orchestration, 15 combinations |
+| `models/*.py` | Individual model implementations |
+| `evaluation.py` | Metrics computation, result analysis |
+| `data_loader.py` | CSV loading, data validation |
+| `model_analyzer.py` | Performance analysis, comparisons |
+| `chat_interface.py` | LLM integration, conversational AI |
+| `system.py` | Logging, utilities, persistence |
 
 ---
 
 ## Performance Summary
 
-**Typical Results on Soil Spectral Data (Phase 2)**:
+**Typical Results on Soil Spectral Data**:
 - Best R² (Standard): 0.45-0.55
 - Best R² (Tuned): 0.48-0.58
-- **Best R² (with FE)**: 0.50-0.65 (+5-20% improvement)
-- Improvement from tuning: 5-15%
-- **Improvement from FE**: 5-20% (data-dependent)
+- Improvement: 5-15% with tuning
 - Most Consistent: PLSR/SVR
 - Fastest: PLSR
-- Most Interpretable: Cubist + Feature Importance
-
-**Feature Importance Insights**:
-- Typically 5-10 wavelengths contribute 80% of predictive power
-- Near-infrared bands (1400-2400 nm) often most important for soil properties
-- Consistency across paradigms validates physical interpretability
+- Most Interpretable: Cubist
 
 ---
 
@@ -2203,15 +1741,12 @@ best_score = search.best_score_
 
 - Deep learning models (1D CNN, LSTM)
 - Ensemble methods (stacking, blending)
-- **Automated feature selection** based on importance scores
-- **Feature engineering recommendation system** (AI-guided)
+- Feature selection algorithms
 - Real-time model retraining
 - Mobile app deployment
-- **Multi-target prediction** (predict multiple soil properties simultaneously)
 
 ---
 
-**Version**: 2.0.0 (Phase 2)  
-**Last Updated**: December 2, 2025  
-**Team**: Team 27 - Spectral Soil Modeler  
-**Major Features**: Feature Engineering + Feature Importance + Enhanced AI Context
+**Version**: 1.0.0  
+**Last Updated**: December 2024  
+**Team**: Team 27 - Spectral Soil Modeler
