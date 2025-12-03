@@ -125,7 +125,7 @@ class ModelAnalyzer:
     
     @staticmethod
     def get_combination_statistics(results_df: pd.DataFrame,
-                                   model: str, technique: str) -> Dict[str, Any]:
+                                   model: str, technique: str, use_loo_cv: bool = False) -> Dict[str, Any]:
         """
         Get statistics for a specific model-technique combination.
         
@@ -137,6 +137,8 @@ class ModelAnalyzer:
             Model name
         technique : str
             Technique name
+        use_loo_cv : bool, default=False
+            Use LOO CV test metrics if available
             
         Returns
         -------
@@ -152,28 +154,39 @@ class ModelAnalyzer:
         
         row = combo_data.iloc[0]
         
+        # Use LOO CV test metrics when available and enabled
+        if use_loo_cv and 'LOO_CV_Test_R²' in results_df.columns and pd.notna(row.get('LOO_CV_Test_R²')):
+            r2_col = 'LOO_CV_Test_R²'
+            rmse_col = 'LOO_CV_Test_RMSE'
+        else:
+            r2_col = 'Test_R²'
+            rmse_col = 'Test_RMSE'
+        
         stats = {
             'model': model,
             'technique': technique,
             'metrics': {
-                'test_r2': float(row.get('Test_R²', 0)),
-                'test_rmse': float(row.get('Test_RMSE', 0)),
+                'test_r2': float(row.get(r2_col, 0)),
+                'test_rmse': float(row.get(rmse_col, 0)),
                 'test_mae': float(row.get('Test_MAE', 0)),
                 'test_mape': float(row.get('Test_MAPE', 0)),
                 'rpd': float(row.get('RPD', 0)),
                 'train_r2': float(row.get('Train_R²', 0)),
                 'train_rmse': float(row.get('Train_RMSE', 0)),
             },
-            'quality_assessment': ModelAnalyzer._assess_model_quality(row),
+            'quality_assessment': ModelAnalyzer._assess_model_quality(row, use_loo_cv=use_loo_cv),
         }
         
         return stats
     
     
     @staticmethod
-    def _assess_model_quality(row: pd.Series) -> str:
+    def _assess_model_quality(row: pd.Series, use_loo_cv: bool = False) -> str:
         """Assess model quality based on metrics."""
-        r2 = row.get('Test_R²', 0)
+        if use_loo_cv and 'LOO_CV_Test_R²' in row.index and pd.notna(row.get('LOO_CV_Test_R²')):
+            r2 = row.get('LOO_CV_Test_R²', 0)
+        else:
+            r2 = row.get('Test_R²', 0)
         
         if r2 > 0.9:
             return 'Excellent'
@@ -191,6 +204,7 @@ class ModelAnalyzer:
     def compare_models(results_df: pd.DataFrame, model_list: List[str]) -> pd.DataFrame:
         """
         Compare multiple models.
+        Uses LOO CV test metrics when available for better validation.
         
         Parameters
         ----------
@@ -204,6 +218,11 @@ class ModelAnalyzer:
         pd.DataFrame
             Comparison dataframe
         """
+        # Detect if LOO CV test metrics are available
+        use_loo_cv = 'LOO_CV_Test_R²' in results_df.columns and results_df['LOO_CV_Test_R²'].notna().any()
+        r2_col = 'LOO_CV_Test_R²' if use_loo_cv else 'Test_R²'
+        rmse_col = 'LOO_CV_Test_RMSE' if use_loo_cv else 'Test_RMSE'
+        
         comparison_data = []
         
         for model in model_list:
@@ -212,10 +231,10 @@ class ModelAnalyzer:
                 comparison_data.append({
                     'Model': model,
                     'Count': len(model_results),
-                    'Best R²': model_results['Test_R²'].max(),
-                    'Mean R²': model_results['Test_R²'].mean(),
-                    'Std R²': model_results['Test_R²'].std(),
-                    'RMSE': model_results['Test_RMSE'].mean() if 'Test_RMSE' in model_results.columns else np.nan,
+                    f'Best {r2_col.replace("LOO_CV_", "")}': model_results[r2_col].max(),
+                    f'Mean {r2_col.replace("LOO_CV_", "")}': model_results[r2_col].mean(),
+                    f'Std {r2_col.replace("LOO_CV_", "")}': model_results[r2_col].std(),
+                    'RMSE': model_results[rmse_col].mean() if rmse_col in model_results.columns else np.nan,
                     'MAE': model_results['Test_MAE'].mean() if 'Test_MAE' in model_results.columns else np.nan,
                 })
         
@@ -226,6 +245,7 @@ class ModelAnalyzer:
     def compare_techniques(results_df: pd.DataFrame, technique_list: List[str] = None) -> pd.DataFrame:
         """
         Compare multiple techniques.
+        Uses LOO CV test metrics when available for better validation.
         
         Parameters
         ----------
@@ -239,6 +259,11 @@ class ModelAnalyzer:
         pd.DataFrame
             Comparison dataframe
         """
+        # Detect if LOO CV test metrics are available
+        use_loo_cv = 'LOO_CV_Test_R²' in results_df.columns and results_df['LOO_CV_Test_R²'].notna().any()
+        r2_col = 'LOO_CV_Test_R²' if use_loo_cv else 'Test_R²'
+        rmse_col = 'LOO_CV_Test_RMSE' if use_loo_cv else 'Test_RMSE'
+        
         if technique_list is None:
             technique_list = results_df['Technique'].unique().tolist()
         
@@ -250,10 +275,10 @@ class ModelAnalyzer:
                 comparison_data.append({
                     'Technique': technique,
                     'Count': len(tech_results),
-                    'Best R²': tech_results['Test_R²'].max(),
-                    'Mean R²': tech_results['Test_R²'].mean(),
-                    'Std R²': tech_results['Test_R²'].std(),
-                    'RMSE': tech_results['Test_RMSE'].mean() if 'Test_RMSE' in tech_results.columns else np.nan,
+                    f'Best {r2_col.replace("LOO_CV_", "")}': tech_results[r2_col].max(),
+                    f'Mean {r2_col.replace("LOO_CV_", "")}': tech_results[r2_col].mean(),
+                    f'Std {r2_col.replace("LOO_CV_", "")}': tech_results[r2_col].std(),
+                    'RMSE': tech_results[rmse_col].mean() if rmse_col in tech_results.columns else np.nan,
                     'MAE': tech_results['Test_MAE'].mean() if 'Test_MAE' in tech_results.columns else np.nan,
                 })
         
@@ -486,6 +511,7 @@ class PerformanceComparator:
     def calculate_ranking(results_df: pd.DataFrame) -> pd.DataFrame:
         """
         Calculate ranking of all model-technique combinations.
+        Uses LOO CV test metrics when available for better validation.
         
         Parameters
         ----------
@@ -497,11 +523,16 @@ class PerformanceComparator:
         pd.DataFrame
             Ranked results
         """
-        ranked = results_df.copy()
-        ranked['Rank'] = ranked['Test_R²'].rank(ascending=False, method='min')
-        ranked = ranked.sort_values('Test_R²', ascending=False)
+        # Detect if LOO CV test metrics are available
+        use_loo_cv = 'LOO_CV_Test_R²' in results_df.columns and results_df['LOO_CV_Test_R²'].notna().any()
+        r2_col = 'LOO_CV_Test_R²' if use_loo_cv else 'Test_R²'
+        rmse_col = 'LOO_CV_Test_RMSE' if use_loo_cv else 'Test_RMSE'
         
-        return ranked[['Rank', 'Model', 'Technique', 'Test_R²', 'Test_RMSE', 'Test_MAE']]
+        ranked = results_df.copy()
+        ranked['Rank'] = ranked[r2_col].rank(ascending=False, method='min')
+        ranked = ranked.sort_values(r2_col, ascending=False)
+        
+        return ranked[['Rank', 'Model', 'Technique', r2_col, rmse_col, 'Test_MAE']]
     
     
     @staticmethod

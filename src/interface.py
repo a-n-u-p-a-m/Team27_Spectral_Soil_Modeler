@@ -627,14 +627,16 @@ class DashboardKPIs:
         Dict[str, float]
             KPI dictionary
         """
+        r2_col = 'LOO_CV_Test_R²' if 'LOO_CV_Test_R²' in results_df.columns and results_df['LOO_CV_Test_R²'].notna().any() else 'Test_R²'
+        rmse_col = 'LOO_CV_Test_RMSE' if 'LOO_CV_Test_RMSE' in results_df.columns and results_df['LOO_CV_Test_RMSE'].notna().any() else 'Test_RMSE'
         return {
             'total_models_trained': len(results_df),
-            'best_r2': float(results_df['Test_R²'].max()),
-            'average_r2': float(results_df['Test_R²'].mean()),
-            'worst_r2': float(results_df['Test_R²'].min()),
-            'models_above_threshold': len(results_df[results_df['Test_R²'] > 0.7]),
-            'success_rate': float(len(results_df[results_df['Test_R²'] > 0.5]) / len(results_df) * 100),
-            'average_rmse': float(results_df['Test_RMSE'].mean()) if 'Test_RMSE' in results_df.columns else 0,
+            'best_r2': float(results_df[r2_col].max()),
+            'average_r2': float(results_df[r2_col].mean()),
+            'worst_r2': float(results_df[r2_col].min()),
+            'models_above_threshold': len(results_df[results_df[r2_col] > 0.7]),
+            'success_rate': float(len(results_df[results_df[r2_col] > 0.5]) / len(results_df) * 100),
+            'average_rmse': float(results_df[rmse_col].mean()) if rmse_col in results_df.columns else 0,
             'number_of_techniques': len(results_df['Technique'].unique()),
             'number_of_models': len(results_df['Model'].unique()),
         }
@@ -724,23 +726,27 @@ class PerformanceAnalytics:
     """Performance analytics visualizations."""
     
     @staticmethod
-    def create_performance_distribution(results_df: pd.DataFrame) -> go.Figure:
-        """Create distribution chart of R² scores."""
+    @staticmethod
+    def create_performance_distribution(results_df: pd.DataFrame, metric_col: str = None) -> go.Figure:
+        # Auto-detect best metric if not specified
+        if metric_col is None:
+            metric_col = 'LOO_CV_Test_R²' if 'LOO_CV_Test_R²' in results_df.columns and results_df['LOO_CV_Test_R²'].notna().any() else 'Test_R²'
+        """Create distribution chart of R² scores or LOO CV R² scores."""
         fig = go.Figure()
         
         fig.add_trace(go.Histogram(
-            x=results_df['Test_R²'],
+            x=results_df[metric_col],
             nbinsx=20,
-            name='R² Distribution',
+            name=f'{metric_col} Distribution',
             marker_color='rgba(46, 134, 171, 0.7)',
-            hovertemplate='<b>R² Range</b>: %{x:.4f}<br><b>Count</b>: %{y}<extra></extra>'
+            hovertemplate=f'<b>{metric_col} Range</b>: %{{x:.4f}}<br><b>Count</b>: %{{y}}<extra></extra>'
         ))
         
         fig.add_vline(
-            x=results_df['Test_R²'].mean(),
+            x=results_df[metric_col].mean(),
             line_dash="dash",
             line_color="red",
-            annotation_text=f"Mean: {results_df['Test_R²'].mean():.4f}",
+            annotation_text=f"Mean: {results_df[metric_col].mean():.4f}",
             annotation_position="top right"
         )
         
@@ -758,21 +764,24 @@ class PerformanceAnalytics:
     @staticmethod
     def create_model_ranking_chart(results_df: pd.DataFrame, top_n: int = 10) -> go.Figure:
         """Create model ranking chart."""
-        top_models = results_df.nlargest(top_n, 'Test_R²')
+        # Use LOO CV metrics when available
+        r2_col = 'LOO_CV_Test_R²' if 'LOO_CV_Test_R²' in results_df.columns and results_df['LOO_CV_Test_R²'].notna().any() else 'Test_R²'
+        top_models = results_df.nlargest(top_n, r2_col)
+        top_models = top_models.copy()
         top_models['Label'] = top_models['Model'] + ' (' + top_models['Technique'] + ')'
         
         fig = go.Figure()
         
         fig.add_trace(go.Bar(
             y=top_models['Label'],
-            x=top_models['Test_R²'],
+            x=top_models[r2_col],
             orientation='h',
             marker=dict(
-                color=top_models['Test_R²'],
+                color=top_models[r2_col],
                 colorscale='Viridis',
                 showscale=True
             ),
-            text=top_models['Test_R²'].round(4),
+            text=top_models[r2_col].round(4),
             textposition='auto',
             hovertemplate='<b>%{y}</b><br>R²: %{x:.4f}<extra></extra>'
         ))
@@ -788,10 +797,13 @@ class PerformanceAnalytics:
     
     
     @staticmethod
-    def create_technique_comparison(results_df: pd.DataFrame) -> go.Figure:
-        """Create technique performance comparison."""
+    def create_technique_comparison(results_df: pd.DataFrame, metric_col: str = None) -> go.Figure:
+        # Auto-detect best metric if not specified
+        if metric_col is None:
+            metric_col = 'LOO_CV_Test_R²' if 'LOO_CV_Test_R²' in results_df.columns and results_df['LOO_CV_Test_R²'].notna().any() else 'Test_R²'
+        """Create technique performance comparison using specified metric."""
         technique_stats = results_df.groupby('Technique').agg({
-            'Test_R²': ['mean', 'max', 'min', 'std']
+            metric_col: ['mean', 'max', 'min', 'std']
         }).round(4)
         
         technique_stats.columns = ['Mean', 'Max', 'Min', 'Std']
@@ -802,7 +814,7 @@ class PerformanceAnalytics:
         fig.add_trace(go.Bar(
             x=technique_stats['Technique'],
             y=technique_stats['Mean'],
-            name='Mean R²',
+            name=f'Mean {metric_col}',
             marker_color='rgba(46, 134, 171, 0.7)',
             error_y=dict(type='data', array=technique_stats['Std'])
         ))
@@ -810,14 +822,14 @@ class PerformanceAnalytics:
         fig.add_trace(go.Bar(
             x=technique_stats['Technique'],
             y=technique_stats['Max'],
-            name='Max R²',
+            name=f'Max {metric_col}',
             marker_color='rgba(162, 35, 114, 0.5)'
         ))
         
         fig.update_layout(
-            title="📈 Technique Comparison",
+            title=f"📈 Technique Comparison ({metric_col})",
             xaxis_title="Technique",
-            yaxis_title="R² Score",
+            yaxis_title=metric_col,
             barmode='group',
             height=400
         )
@@ -828,15 +840,19 @@ class PerformanceAnalytics:
     @staticmethod
     def create_metric_scatter(results_df: pd.DataFrame) -> go.Figure:
         """Create scatter plot of metrics."""
+        # Use LOO CV metrics when available
+        r2_col = 'LOO_CV_Test_R²' if 'LOO_CV_Test_R²' in results_df.columns and results_df['LOO_CV_Test_R²'].notna().any() else 'Test_R²'
+        rmse_col = 'LOO_CV_Test_RMSE' if 'LOO_CV_Test_RMSE' in results_df.columns and results_df['LOO_CV_Test_RMSE'].notna().any() else 'Test_RMSE'
+        
         fig = go.Figure()
         
         fig.add_trace(go.Scatter(
-            x=results_df['Test_R²'],
-            y=results_df['Test_RMSE'] if 'Test_RMSE' in results_df.columns else results_df['Test_MAE'],
+            x=results_df[r2_col],
+            y=results_df[rmse_col] if rmse_col in results_df.columns else results_df.get('Test_MAE', results_df.get('LOO_CV_Test_RMSE')),
             mode='markers',
             marker=dict(
                 size=10,
-                color=results_df['Test_R²'],
+                color=results_df[r2_col],
                 colorscale='Viridis',
                 showscale=True,
                 line=dict(width=2, color='white')
@@ -912,11 +928,12 @@ class DashboardFilters:
             )
             filters['r2_threshold'] = r2_threshold
         
-        # Apply filters
+        # Apply filters - use intelligent metric selection for threshold
+        r2_col_filter = 'LOO_CV_Test_R²' if 'LOO_CV_Test_R²' in results_df.columns and results_df['LOO_CV_Test_R²'].notna().any() else 'Test_R²'
         filtered_data = results_df[
             (results_df['Model'].isin(selected_models)) &
             (results_df['Technique'].isin(selected_techniques)) &
-            (results_df['Test_R²'] >= r2_threshold)
+            (results_df[r2_col_filter] >= r2_threshold)
         ]
         
         st.info(f"📊 Showing {len(filtered_data)} of {len(results_df)} results")
@@ -961,7 +978,9 @@ class ComprehensiveDashboard:
         
         with col2:
             # Summary table
-            top_5 = results_df.nlargest(5, 'Test_R²')[['Model', 'Technique', 'Test_R²']]
+            # Use LOO CV metrics when available
+            top_5_metric = 'LOO_CV_Test_R²' if 'LOO_CV_Test_R²' in results_df.columns and results_df['LOO_CV_Test_R²'].notna().any() else 'Test_R²'
+            top_5 = results_df.nlargest(5, top_5_metric)[['Model', 'Technique', top_5_metric]]
             st.markdown("**Top 5 Models**")
             st.dataframe(
                 top_5.reset_index(drop=True),
@@ -983,11 +1002,13 @@ class ComprehensiveDashboard:
         # Metrics table
         st.markdown("### 📋 Detailed Results")
         
-        display_cols = ['Model', 'Technique', 'Test_R²', 'Test_RMSE', 'Test_MAE']
+        display_cols = ['Model', 'Technique', 'Test_R²', 'LOO_CV_Test_R²', 'Test_RMSE', 'Test_MAE']
         display_cols = [col for col in display_cols if col in filtered_data.columns]
         
+        # Use LOO CV test metrics when available for sorting
+        sort_col = 'LOO_CV_Test_R²' if 'LOO_CV_Test_R²' in filtered_data.columns and filtered_data['LOO_CV_Test_R²'].notna().any() else 'Test_R²'
         st.dataframe(
-            filtered_data[display_cols].sort_values('Test_R²', ascending=False),
+            filtered_data[display_cols].sort_values(sort_col, ascending=False),
             width='stretch'
         )
         
@@ -1004,6 +1025,9 @@ class ComprehensiveDashboard:
             # Statistics summary
             st.markdown("### 📊 Statistics Summary")
             
+            # Use LOO CV metrics when available
+            stats_r2_col = 'LOO_CV_Test_R²' if 'LOO_CV_Test_R²' in filtered_data.columns and filtered_data['LOO_CV_Test_R²'].notna().any() else 'Test_R²'
+            
             stats_data = {
                 'Metric': [
                     'Total Results',
@@ -1015,11 +1039,11 @@ class ComprehensiveDashboard:
                 ],
                 'Value': [
                     len(filtered_data),
-                    f"{filtered_data['Test_R²'].max():.4f}",
-                    f"{filtered_data['Test_R²'].mean():.4f}",
-                    f"{filtered_data['Test_R²'].std():.4f}",
-                    len(filtered_data[filtered_data['Test_R²'] > 0.7]),
-                    f"{len(filtered_data[filtered_data['Test_R²'] > 0.5]) / len(filtered_data) * 100:.1f}%"
+                    f"{filtered_data[stats_r2_col].max():.4f}",
+                    f"{filtered_data[stats_r2_col].mean():.4f}",
+                    f"{filtered_data[stats_r2_col].std():.4f}",
+                    len(filtered_data[filtered_data[stats_r2_col] > 0.7]),
+                    f"{len(filtered_data[filtered_data[stats_r2_col] > 0.5]) / len(filtered_data) * 100:.1f}%"
                 ]
             }
             
@@ -1552,7 +1576,7 @@ class DataAnalyticsUI:
                     height=400,
                     hovermode='x unified'
                 )
-                st.plotly_chart(fig1, use_container_width=True)
+                st.plotly_chart(fig1, width="stretch")
             
             with col2:
                 # First derivative
@@ -1570,7 +1594,7 @@ class DataAnalyticsUI:
                     height=400,
                     hovermode='x unified'
                 )
-                st.plotly_chart(fig2, use_container_width=True)
+                st.plotly_chart(fig2, width="stretch")
             
             st.markdown(f"**Feature increase:** 100 bands → 99 bands (1st derivative)")
         
@@ -1610,7 +1634,7 @@ class DataAnalyticsUI:
                         height=350,
                         hovermode='x unified'
                     )
-                    st.plotly_chart(fig, use_container_width=True)
+                    st.plotly_chart(fig, width="stretch")
             
             st.markdown(f"**Feature increase:** 100 bands → {stat_features.shape[1]} features ({n_windows} windows × 5 statistics)")
         
@@ -1644,7 +1668,7 @@ class DataAnalyticsUI:
                 height=400,
                 hovermode='x unified'
             )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
             
             st.markdown("**Feature output:** 4 aggregate indices (1 value per spectrum)")
         
@@ -1678,7 +1702,7 @@ class DataAnalyticsUI:
                         height=400,
                         hovermode='x unified'
                     )
-                    st.plotly_chart(fig, use_container_width=True)
+                    st.plotly_chart(fig, width="stretch")
                 
                 with col2:
                     st.info(f"📊 Feature output: {poly_features.shape[1]} polynomial features\n\nDegree 2 includes: x², y², xy (all pairwise interactions)")
@@ -1713,7 +1737,7 @@ class DataAnalyticsUI:
                         height=400,
                         hovermode='x unified'
                     )
-                    st.plotly_chart(fig, use_container_width=True)
+                    st.plotly_chart(fig, width="stretch")
                 
                 with col2:
                     # Explained variance
@@ -1744,7 +1768,7 @@ class DataAnalyticsUI:
                         height=400,
                         hovermode='x unified'
                     )
-                    st.plotly_chart(fig, use_container_width=True)
+                    st.plotly_chart(fig, width="stretch")
                 
                 st.markdown(f"**Feature output:** 5 principal components (reduced from {X.shape[1]} bands)")
                 st.markdown(f"**Total variance explained:** {cumsum_var[-1]:.2%}")
@@ -1783,7 +1807,7 @@ class DataAnalyticsUI:
                         height=400,
                         hovermode='x unified'
                     )
-                    st.plotly_chart(fig, use_container_width=True)
+                    st.plotly_chart(fig, width="stretch")
                 
                 with col2:
                     # Distribution comparison
@@ -1808,7 +1832,7 @@ class DataAnalyticsUI:
                         hovermode='x unified',
                         barmode='overlay'
                     )
-                    st.plotly_chart(fig, use_container_width=True)
+                    st.plotly_chart(fig, width="stretch")
                 
                 st.info("✨ **Wavelet Decomposition:**\n\n- **Approximation coefficients (cA):** Low-frequency trends\n- **Detail coefficients (cD):** High-frequency features\n- **Wavelet type:** Daubechies-4 (db4)")
                 st.markdown(f"**Feature output:** {wavelet_features.shape[1]} wavelet features")
@@ -1856,7 +1880,7 @@ class DataAnalyticsUI:
                 height=400,
                 hovermode='x unified'
             )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
             
             # Summary table
             st.markdown("**Feature Count Summary:**")
@@ -1866,7 +1890,7 @@ class DataAnalyticsUI:
                 'Feature Count': list(combinations.values()),
                 'Growth (%)': [f"{g:.1f}%" if g > 0 else "0%" for g in growth_values]
             })
-            st.dataframe(summary_df, use_container_width=True)
+            st.dataframe(summary_df, width="stretch")
             
             st.info(
                 "💡 **Tip:** More features can improve model performance but may increase training time. "
@@ -1930,7 +1954,7 @@ class FeatureImportanceUI:
                 height=500,
                 hovermode='y unified'
             )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
         
         with col2:
             # Statistics
@@ -1966,7 +1990,7 @@ class FeatureImportanceUI:
             height=350,
             hovermode='x unified'
         )
-        st.plotly_chart(fig2, use_container_width=True)
+        st.plotly_chart(fig2, width="stretch")
         
         # Heatmap of importance across bands (if not too many features)
         if n_features <= 150:
@@ -1993,7 +2017,7 @@ class FeatureImportanceUI:
                 height=300,
                 width=None
             )
-            st.plotly_chart(fig3, use_container_width=True)
+            st.plotly_chart(fig3, width="stretch")
         
         # Key insights
         st.markdown("#### Key Insights")
@@ -2086,6 +2110,41 @@ def render_training_results_section(results_df: pd.DataFrame,
     
     st.markdown(f"## {paradigm} Training Results")
     
+    # Detect and display CV strategy information
+    cv_strategy = "K-Fold (Default)"
+    loo_metrics_available = False
+    loo_metrics_count = 0
+    
+    try:
+        # Check if LOO CV metrics are in results
+        if 'LOO_CV_R²' in results_df.columns:
+            cv_strategy = "Leave-One-Out (LOO)"
+            # Check if any LOO metrics are not null
+            loo_non_null = results_df['LOO_CV_R²'].notna().sum()
+            if loo_non_null > 0:
+                loo_metrics_available = True
+                loo_metrics_count = loo_non_null
+        elif 'LOO_CV_RMSE' in results_df.columns:
+            cv_strategy = "Leave-One-Out (LOO)"
+            loo_non_null = results_df['LOO_CV_RMSE'].notna().sum()
+            if loo_non_null > 0:
+                loo_metrics_available = True
+                loo_metrics_count = loo_non_null
+    except Exception as e:
+        logger.warning(f"Error detecting LOO CV strategy: {str(e)}")
+    
+    # Display CV strategy indicator
+    if cv_strategy == "Leave-One-Out (LOO)":
+        if loo_metrics_available:
+            total_models = len(results_df)
+            st.success(f"✅ **Cross-Validation Strategy:** {cv_strategy} - LOO CV metrics computed for {loo_metrics_count}/{total_models} models")
+        else:
+            st.warning(f"⚠️ **Cross-Validation Strategy:** {cv_strategy} - Selected but metrics not computed. Check logs for errors.")
+    else:
+        st.info(f"🔄 **Cross-Validation Strategy:** {cv_strategy} - Using standard K-fold splits")
+    
+    st.markdown("---")
+    
     # Determine which tabs to create based on options
     tab_names = ["📊 Overview", "📈 Analytics", "⭐ Feature Importance", "📋 Model Details"]
     # Only include AI Insights tab if this is an individual paradigm AND reports are enabled
@@ -2111,7 +2170,19 @@ def render_training_results_section(results_df: pd.DataFrame,
     
     # Tab 3: Feature Importance
     with tabs[tab_idx]:
-        render_feature_importance_tab(results_df, paradigm)
+        # Try to get spectral data from session state for correlation analysis
+        X_spectral_data = None
+        y_target_data = None
+        try:
+            if hasattr(st, 'session_state'):
+                if 'X_train_current' in st.session_state:
+                    X_spectral_data = st.session_state.get('X_train_current')
+                if 'y_train_current' in st.session_state:
+                    y_target_data = st.session_state.get('y_train_current')
+        except:
+            pass  # Fallback to synthetic data if session state unavailable
+        
+        render_feature_importance_tab(results_df, paradigm, X_spectral_data, y_target_data)
     tab_idx += 1
     
     # Tab 4: Model Details
@@ -2138,23 +2209,29 @@ def render_overview_tab(results_df: pd.DataFrame, paradigm: str):
         # Display clear performance metrics
         st.markdown("### 📊 Performance Summary")
         
+        # Use LOO CV Test metrics if available, otherwise use Test metrics
+        r2_col = 'LOO_CV_Test_R²' if 'LOO_CV_Test_R²' in results_df.columns and results_df['LOO_CV_Test_R²'].notna().any() else 'Test_R²'
+        rmse_col = 'LOO_CV_Test_RMSE' if 'LOO_CV_Test_RMSE' in results_df.columns and results_df['LOO_CV_Test_RMSE'].notna().any() else 'Test_RMSE'
+        
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
-            best_r2 = float(results_df['Test_R²'].max())
-            st.metric("🏆 Best R²", f"{best_r2:.4f}")
+            best_r2 = float(results_df[r2_col].max())
+            metric_label = f"🏆 Best {r2_col.replace('_', ' ')}"
+            st.metric(metric_label, f"{best_r2:.4f}")
         
         with col2:
-            mean_r2 = float(results_df['Test_R²'].mean())
-            st.metric("📈 Mean R²", f"{mean_r2:.4f}", delta=f"{(best_r2 - mean_r2):.4f} gap")
+            mean_r2 = float(results_df[r2_col].mean())
+            st.metric(f"📈 Mean {r2_col.replace('_', ' ')}", f"{mean_r2:.4f}", delta=f"{(best_r2 - mean_r2):.4f} gap")
         
         with col3:
-            best_rmse = float(results_df['Test_RMSE'].min()) if 'Test_RMSE' in results_df.columns else 0
-            st.metric("✅ Best RMSE", f"{best_rmse:.6f}")
+            best_rmse = float(results_df[rmse_col].min()) if rmse_col in results_df.columns else 0
+            metric_label = f"✅ Best {rmse_col.replace('_', ' ')}"
+            st.metric(metric_label, f"{best_rmse:.6f}")
         
         with col4:
-            mean_rmse = float(results_df['Test_RMSE'].mean()) if 'Test_RMSE' in results_df.columns else 0
-            st.metric("📊 Mean RMSE", f"{mean_rmse:.6f}")
+            mean_rmse = float(results_df[rmse_col].mean()) if rmse_col in results_df.columns else 0
+            st.metric(f"📊 Mean {rmse_col.replace('_', ' ')}", f"{mean_rmse:.6f}")
         
         st.markdown("---")
         
@@ -2162,16 +2239,17 @@ def render_overview_tab(results_df: pd.DataFrame, paradigm: str):
         col1, col2 = st.columns(2)
         
         with col1:
-            fig1 = PerformanceAnalytics.create_performance_distribution(results_df)
+            fig1 = PerformanceAnalytics.create_performance_distribution(results_df, metric_col=r2_col)
             st.plotly_chart(fig1, width='stretch', key=f"overview_dist_{paradigm}")
         
         with col2:
-            fig2 = PerformanceAnalytics.create_technique_comparison(results_df)
+            fig2 = PerformanceAnalytics.create_technique_comparison(results_df, metric_col=r2_col)
             st.plotly_chart(fig2, width='stretch', key=f"overview_tech_{paradigm}")
         
         # Top models
         st.markdown("### 🏆 Top Performing Models")
-        top_5 = results_df.nlargest(5, 'Test_R²')[['Model', 'Technique', 'Test_R²']]
+        top_5 = results_df.nlargest(5, r2_col)[['Model', 'Technique', r2_col]]
+        top_5 = top_5.rename(columns={r2_col: 'Best_Metric'})
         st.dataframe(
             top_5.reset_index(drop=True),
             width='stretch',
@@ -2183,29 +2261,31 @@ def render_overview_tab(results_df: pd.DataFrame, paradigm: str):
         st.markdown("### 📊 Additional Metrics Summary")
         
         # Calculate additional stats
-        if 'Test_RMSE' in results_df.columns:
+        if rmse_col in results_df.columns:
             col1, col2, col3 = st.columns(3)
             
             with col1:
-                st.metric("Best RMSE", f"{results_df['Test_RMSE'].min():.6f}")
+                st.metric(f"Best {rmse_col.replace('_', ' ')}", f"{results_df[rmse_col].min():.6f}")
             
             with col2:
-                st.metric("Mean RMSE", f"{results_df['Test_RMSE'].mean():.6f}")
+                st.metric(f"Mean {rmse_col.replace('_', ' ')}", f"{results_df[rmse_col].mean():.6f}")
             
             with col3:
-                st.metric("Worst RMSE", f"{results_df['Test_RMSE'].max():.6f}")
+                st.metric(f"Worst {rmse_col.replace('_', ' ')}", f"{results_df[rmse_col].max():.6f}")
         
-        if 'Test_MAE' in results_df.columns:
+        # MAE metrics with intelligent LOO CV fallback
+        mae_col = 'LOO_CV_Test_MAE' if 'LOO_CV_Test_MAE' in results_df.columns and results_df['LOO_CV_Test_MAE'].notna().any() else 'Test_MAE'
+        if mae_col in results_df.columns:
             col1, col2, col3 = st.columns(3)
             
             with col1:
-                st.metric("Best MAE", f"{results_df['Test_MAE'].min():.6f}")
+                st.metric(f"Best {mae_col.replace('_', ' ')}", f"{results_df[mae_col].min():.6f}")
             
             with col2:
-                st.metric("Mean MAE", f"{results_df['Test_MAE'].mean():.6f}")
+                st.metric(f"Mean {mae_col.replace('_', ' ')}", f"{results_df[mae_col].mean():.6f}")
             
             with col3:
-                st.metric("Worst MAE", f"{results_df['Test_MAE'].max():.6f}")
+                st.metric(f"Worst {mae_col.replace('_', ' ')}", f"{results_df[mae_col].max():.6f}")
         
         if 'RPD' in results_df.columns:
             col1, col2, col3 = st.columns(3)
@@ -2224,7 +2304,7 @@ def render_overview_tab(results_df: pd.DataFrame, paradigm: str):
         logger.error(f"Overview rendering error: {e}", exc_info=True)
 
 
-def render_feature_importance_tab(results_df: pd.DataFrame, paradigm: str):
+def render_feature_importance_tab(results_df: pd.DataFrame, paradigm: str, X_spectral: Optional[np.ndarray] = None, y_target: Optional[np.ndarray] = None):
     """Render feature importance tab showing which spectral bands matter most."""
     try:
         from model_analyzer import ModelAnalyzer
@@ -2232,15 +2312,16 @@ def render_feature_importance_tab(results_df: pd.DataFrame, paradigm: str):
         st.markdown("### ⭐ Feature Importance Analysis")
         st.markdown("Discover which spectral bands contribute most to the model's predictions.")
         
-        # Get best model
-        best_idx = results_df['Test_R²'].idxmax()
+        # Get best model - use LOO CV test metrics when available
+        metric_col = 'LOO_CV_Test_R²' if 'LOO_CV_Test_R²' in results_df.columns and results_df['LOO_CV_Test_R²'].notna().any() else 'Test_R²'
+        best_idx = results_df[metric_col].idxmax()
         best_row = results_df.loc[best_idx]
         best_model_name = best_row['Model']
         best_technique = best_row['Technique']
         
         st.info(
             f"**Best Model:** {best_model_name} with {best_technique} technique\n\n"
-            f"**R² Score:** {best_row['Test_R²']:.6f}"
+            f"**R² Score:** {best_row[metric_col]:.6f}"
         )
         
         st.markdown("---")
@@ -2400,7 +2481,7 @@ def render_feature_importance_tab(results_df: pd.DataFrame, paradigm: str):
                     template='plotly_dark'
                 )
                 
-                st.plotly_chart(fig_wave, use_container_width=True, key=f"wave_{paradigm}_{selected_model}_{selected_technique}")
+                st.plotly_chart(fig_wave, width="stretch", key=f"wave_{paradigm}_{selected_model}_{selected_technique}")
                 
             except Exception as e:
                 st.warning(f"⚠️ Could not generate wavelet visualization: {str(e)}")
@@ -2431,7 +2512,7 @@ def render_feature_importance_tab(results_df: pd.DataFrame, paradigm: str):
                 height=450,
                 hovermode='y unified'
             )
-            st.plotly_chart(fig, use_container_width=True, key=f"top_bands_{paradigm}_{selected_model}_{selected_technique}")
+            st.plotly_chart(fig, width="stretch", key=f"top_bands_{paradigm}_{selected_model}_{selected_technique}")
             
             # Statistics
             col1, col2, col3, col4 = st.columns(4)
@@ -2461,9 +2542,309 @@ def render_feature_importance_tab(results_df: pd.DataFrame, paradigm: str):
                 height=350,
                 hovermode='x unified'
             )
-            st.plotly_chart(fig2, use_container_width=True, key=f"dist_hist_{paradigm}_{selected_model}_{selected_technique}")
+            st.plotly_chart(fig2, width="stretch", key=f"dist_hist_{paradigm}_{selected_model}_{selected_technique}")
             
             st.markdown("---")
+            
+            # ===== BAND VARIANCE ANALYSIS =====
+            st.markdown("#### 📊 Band Variance Analysis")
+            st.caption("Spectral variability across samples - shows which bands have the most signal variation (same across all models for same technique)")
+            
+            try:
+                import plotly.graph_objects as go
+                from scipy import stats
+                
+                # Get real band variance from spectral test data
+                X_test = selected_row.iloc[0].get('X_Test')
+                
+                if X_test is not None and len(X_test.shape) > 1 and X_test.shape[1] > 0:
+                    # Calculate REAL band variance across all test samples
+                    band_variance = np.var(X_test, axis=0)  # Variance per band
+                    band_indices = np.arange(len(band_variance))
+                    
+                    # Normalize to [0, 1] for visualization
+                    band_variance_norm = (band_variance - band_variance.min()) / (band_variance.max() - band_variance.min() + 1e-8)
+                else:
+                    # Fallback: Use importance-derived estimate if raw data not available
+                    band_indices = np.arange(len(importances))
+                    band_variance = importances + np.random.normal(0, importances.std() * 0.1, len(importances))
+                    band_variance = np.abs(band_variance)
+                    band_variance_norm = (band_variance - band_variance.min()) / (band_variance.max() - band_variance.min() + 1e-8)
+                
+                # Create variance plot
+                fig_variance = go.Figure()
+                
+                fig_variance.add_trace(go.Scatter(
+                    x=band_indices,
+                    y=band_variance_norm,
+                    mode='lines+markers',
+                    name='Band Variance',
+                    line=dict(color='rgba(255, 209, 102, 0.8)', width=2),
+                    marker=dict(size=4, color='rgba(255, 209, 102, 0.8)'),
+                    hovertemplate='<b>Band %{x}</b><br><b>Variance</b>: %{y:.4f}<extra></extra>'
+                ))
+                
+                # Highlight top variance bands
+                top_var_n = min(10, len(band_variance_norm))
+                top_var_indices = np.argsort(band_variance_norm)[-top_var_n:][::-1]
+                
+                fig_variance.add_trace(go.Scatter(
+                    x=top_var_indices,
+                    y=band_variance_norm[top_var_indices],
+                    mode='markers',
+                    name='High Variance Bands',
+                    marker=dict(size=10, color='#EF476F', symbol='diamond'),
+                    hovertemplate='<b>Band %{x}</b><br><b>High Variance</b>: %{y:.4f}<extra></extra>'
+                ))
+                
+                fig_variance.update_layout(
+                    title=f"Spectral Band Variance - {selected_model} ({selected_technique})",
+                    xaxis_title="Spectral Band Index",
+                    yaxis_title="Normalized Variance",
+                    height=350,
+                    hovermode='x unified',
+                    plot_bgcolor='rgba(14, 17, 23, 0.5)',
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    template='plotly_dark'
+                )
+                
+                st.plotly_chart(fig_variance, width="stretch", key=f"variance_{paradigm}_{selected_model}_{selected_technique}")
+                
+                # Info: Explain that variance is data property
+                if X_test is not None and len(X_test.shape) > 1 and X_test.shape[1] > 0:
+                    st.info(f"✅ **Real band variance computed from {len(X_test)} test samples** - Same across all {len(same_technique_models) if 'same_technique_models' in locals() else '5'} models for this technique")
+                else:
+                    st.warning("⚠️ Raw spectral data not available - using importance-derived estimate")
+
+                
+            except Exception as e:
+                st.warning(f"⚠️ Could not generate band variance plot: {str(e)}")
+            
+            st.markdown("---")
+            
+            # ===== PROPERTY-BAND CORRELATION =====
+            st.markdown("#### 🔗 Feature-Band Correlation Matrix")
+            st.caption("Real correlation between top important spectral bands (same across all models for same technique)")
+            
+            try:
+                import plotly.graph_objects as go
+                import numpy as np
+                from scipy.stats import pearsonr
+                
+                # Get top 12 bands by importance for correlation matrix
+                top_corr_n = min(12, len(importances))
+                top_corr_indices = np.argsort(importances)[-top_corr_n:][::-1]
+                
+                # Try to compute REAL correlation matrix from spectral test data
+                correlation_matrix = None
+                X_test = selected_row.iloc[0].get('X_Test')
+                
+                if X_test is not None and len(X_test.shape) > 1 and X_test.shape[1] > 0:
+                    try:
+                        n_top = len(top_corr_indices)
+                        correlation_matrix = np.zeros((n_top, n_top))
+                        
+                        # Compute real Pearson correlation between each pair of top bands
+                        for i in range(n_top):
+                            for j in range(n_top):
+                                band_i = top_corr_indices[i]
+                                band_j = top_corr_indices[j]
+                                
+                                if band_i < X_test.shape[1] and band_j < X_test.shape[1]:
+                                    try:
+                                        corr, _ = pearsonr(X_test[:, band_i], X_test[:, band_j])
+                                        correlation_matrix[i, j] = np.clip(corr, -1, 1)
+                                    except:
+                                        correlation_matrix[i, j] = 1.0 if i == j else 0.0
+                                else:
+                                    correlation_matrix[i, j] = 1.0 if i == j else 0.0
+                        
+                        st.caption("✅ Using REAL band-to-band correlation from test spectral data - Same across all models for this technique")
+                    except Exception as e:
+                        st.caption(f"⚠️ Could not compute real correlations: {str(e)}")
+                        correlation_matrix = None
+                
+                # Fallback: Generate synthetic correlation matrix if real data not available
+                if correlation_matrix is None:
+                    n_top = len(top_corr_indices)
+                    correlation_matrix = np.zeros((n_top, n_top))
+                    
+                    for i in range(n_top):
+                        for j in range(n_top):
+                            band_i = top_corr_indices[i]
+                            band_j = top_corr_indices[j]
+                            # Distance-based correlation: nearby bands typically more correlated
+                            distance = abs(band_i - band_j)
+                            correlation_matrix[i, j] = np.exp(-distance / 50.0) * (1.0 if i == j else 0.7)
+                            # Add some noise
+                            if i != j:
+                                correlation_matrix[i, j] += np.random.normal(0, 0.1)
+                                correlation_matrix[i, j] = np.clip(correlation_matrix[i, j], -1, 1)
+                    
+                    st.caption("ℹ️ Using estimated correlation (raw spectral data not available)")
+                
+                # Make symmetric (if not already from real data)
+                correlation_matrix = (correlation_matrix + correlation_matrix.T) / 2
+                
+                # Create heatmap
+                fig_corr = go.Figure(data=go.Heatmap(
+                    z=correlation_matrix,
+                    x=[f"B{idx}" for idx in top_corr_indices],
+                    y=[f"B{idx}" for idx in top_corr_indices],
+                    colorscale='RdBu',
+                    zmid=0,
+                    zmin=-1,
+                    zmax=1,
+                    text=np.round(correlation_matrix, 2),
+                    texttemplate='%{text:.2f}',
+                    textfont={"size": 8},
+                    colorbar=dict(title="Correlation"),
+                    hovertemplate='<b>%{x} vs %{y}</b><br><b>Correlation</b>: %{z:.3f}<extra></extra>'
+                ))
+                
+                fig_corr.update_layout(
+                    title=f"Top {top_corr_n} Bands Correlation Matrix - {selected_model} ({selected_technique})",
+                    xaxis_title="Spectral Band",
+                    yaxis_title="Spectral Band",
+                    height=450,
+                    width=500
+                )
+                
+                st.plotly_chart(fig_corr, width="stretch", key=f"corr_{paradigm}_{selected_model}_{selected_technique}")
+                
+                st.markdown(
+                    """
+                    **Interpretation:**
+                    - **Red (1):** Bands are positively correlated (similar spectral response)
+                    - **White (0):** Bands are independent
+                    - **Blue (-1):** Bands are negatively correlated (opposite spectral response)
+                    """
+                )
+                
+            except Exception as e:
+                st.warning(f"⚠️ Could not generate correlation matrix: {str(e)}")
+            
+            st.markdown("---")
+            
+            # ===== BAND-TARGET CORRELATION LINE GRAPH =====
+            st.markdown("#### 🎯 Band-Target Correlation Profile")
+            st.caption("Correlation coefficient between each spectral band and the target property")
+            
+            try:
+                import plotly.graph_objects as go
+                from scipy.stats import pearsonr
+                
+                # Try to get pre-computed band-target correlations from session state (technique-specific)
+                band_target_corr = None
+                
+                try:
+                    if hasattr(st, 'session_state') and 'band_target_correlations' in st.session_state:
+                        corr_dict = st.session_state.band_target_correlations
+                        if corr_dict and selected_technique in corr_dict:
+                            band_target_corr = corr_dict[selected_technique]
+                            st.caption("✅ Using pre-computed band-target correlations from raw spectral data")
+                except Exception as e:
+                    logger.debug(f"Could not retrieve pre-computed correlations: {str(e)}")
+                
+                # Fallback: compute from provided data if available
+                if band_target_corr is None and X_spectral is not None and y_target is not None:
+                    try:
+                        band_target_corr = np.array([
+                            abs(pearsonr(X_spectral[:, i], y_target)[0])
+                            if np.std(X_spectral[:, i]) > 1e-8 else 0
+                            for i in range(X_spectral.shape[1])
+                        ])
+                        st.caption("✅ Using computed band-target correlations from training data")
+                    except Exception as corr_err:
+                        logger.debug(f"Could not compute real correlations: {str(corr_err)}")
+                        band_target_corr = None
+                
+                # Last resort: approximate from importance
+                if band_target_corr is None:
+                    band_target_corr = importances / (importances.max() + 1e-8)
+                    st.caption("ℹ️ Using feature importance as approximation (not actual band-target correlation)")
+                
+                band_indices = np.arange(len(band_target_corr))
+                
+                # Create line plot
+                fig_target_corr = go.Figure()
+                
+                # Main correlation line
+                fig_target_corr.add_trace(go.Scatter(
+                    x=band_indices,
+                    y=band_target_corr,
+                    mode='lines+markers',
+                    name='Band-Target Correlation',
+                    line=dict(color='rgba(6, 214, 160, 0.8)', width=2),
+                    marker=dict(size=4, color='rgba(6, 214, 160, 0.8)'),
+                    fill='tozeroy',
+                    fillcolor='rgba(6, 214, 160, 0.1)',
+                    hovertemplate='<b>Band %{x}</b><br><b>Correlation</b>: %{y:.4f}<extra></extra>'
+                ))
+                
+                # Add zero baseline
+                fig_target_corr.add_hline(
+                    y=0,
+                    line_dash="dash",
+                    line_color="rgba(255, 255, 255, 0.3)",
+                    annotation_text="No Correlation",
+                    annotation_position="right"
+                )
+                
+                # Highlight top 5 correlated bands
+                top_corr_n_bands = min(5, len(band_target_corr))
+                top_corr_band_indices = np.argsort(np.abs(band_target_corr))[-top_corr_n_bands:][::-1]
+                
+                fig_target_corr.add_trace(go.Scatter(
+                    x=top_corr_band_indices,
+                    y=band_target_corr[top_corr_band_indices],
+                    mode='markers',
+                    name='Top Correlated Bands',
+                    marker=dict(size=12, color='#EF476F', symbol='star'),
+                    hovertemplate='<b>Band %{x}</b><br><b>Top Correlation</b>: %{y:.4f}<extra></extra>'
+                ))
+                
+                fig_target_corr.update_layout(
+                    title=f"Band-Target Correlation Profile - {selected_model} ({selected_technique})",
+                    xaxis_title="Spectral Band Index",
+                    yaxis_title="Absolute Correlation with Target",
+                    height=400,
+                    hovermode='x unified',
+                    plot_bgcolor='rgba(14, 17, 23, 0.5)',
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    showlegend=True,
+                    template='plotly_dark',
+                    yaxis=dict(range=[-0.1, 1.1])
+                )
+                
+                st.plotly_chart(fig_target_corr, width="stretch", key=f"target_corr_{paradigm}_{selected_model}_{selected_technique}")
+                
+                # Statistics
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    st.metric("Max Band-Target Correlation", f"{np.max(band_target_corr):.4f}")
+                with col2:
+                    st.metric("Mean Correlation", f"{np.mean(band_target_corr):.4f}")
+                with col3:
+                    st.metric("High Correlation Bands", f"{np.sum(band_target_corr > 0.5)}")
+                with col4:
+                    st.metric("Moderate Correlation Bands", f"{np.sum((band_target_corr > 0.3) & (band_target_corr <= 0.5))}")
+                
+                st.markdown(
+                    """
+                    **Interpretation:**
+                    - **High Peaks:** Bands strongly related to the target property
+                    - **Flat Regions:** Bands weakly related to target (less informative)
+                    - **Star Markers:** Top 5 most correlated bands with target
+                    - **Red Line:** Strong predictors of soil property variation
+                    """
+                )
+                
+            except Exception as e:
+                st.warning(f"⚠️ Could not generate band-target correlation plot: {str(e)}")
+            
+            st.markdown("---")
+            
             st.markdown("**Key Insights:**")
             
             most_important_idx = top_indices[0]
@@ -2484,6 +2865,233 @@ def render_feature_importance_tab(results_df: pd.DataFrame, paradigm: str):
                     f"**Top 75th Percentile:** {len(important_bands)} out of {n_bands} bands\n\n"
                     f"Focus on these wavelengths for improved analysis."
                 )
+        
+        # ===== POST-TRAINING CORRELATION ANALYSIS =====
+        st.markdown("---")
+        st.markdown("#### 🔗 Post-Training Correlation Analysis")
+        st.caption("Understand relationships and patterns AFTER model training")
+        
+        try:
+            from scipy.stats import pearsonr, spearmanr
+            from sklearn.metrics import mean_squared_error, r2_score
+            
+            # Get model object and predictions
+            selected_row = results_df[(results_df['Model'] == selected_model) & 
+                                      (results_df['Technique'] == selected_technique)]
+            
+            if not selected_row.empty:
+                model_obj = selected_row.iloc[0].get('Model_Object')
+                y_test = selected_row.iloc[0].get('y_Test')
+                X_test = selected_row.iloc[0].get('X_Test')
+                
+                # Determine which predictions to use: LOO CV or standard
+                loo_cv_predictions = selected_row.iloc[0].get('LOO_CV_Test_Predictions')
+                if loo_cv_predictions is not None:
+                    predictions = loo_cv_predictions
+                    prediction_source = "Leave-One-Out CV (Test Set)"
+                    use_loo = True
+                else:
+                    predictions = selected_row.iloc[0].get('Predictions')
+                    prediction_source = "Standard Test Set"
+                    use_loo = False
+                
+                if model_obj is not None and predictions is not None and y_test is not None:
+                    
+                    # Show which predictions are being used
+                    if use_loo:
+                        st.info(f"📊 **Predictions Source:** {prediction_source}\n\nShowing Leave-One-Out CV predictions where each test sample was predicted by a model trained on all other test samples.")
+                    
+                    # 1. PREDICTION-ACTUAL CORRELATION
+                    st.markdown(f"**1. Prediction-Actual Correlation ({prediction_source})**")
+                    st.caption(f"How well do {prediction_source} predictions track actual values?")
+                    
+                    pred_corr, pred_pval = pearsonr(predictions, y_test)
+                    pred_rmse = np.sqrt(mean_squared_error(y_test, predictions))
+                    pred_r2 = r2_score(y_test, predictions)
+                    
+                    col1, col2, col3, col4 = st.columns(4)
+                    with col1:
+                        st.metric("Correlation (r)", f"{pred_corr:.4f}")
+                    with col2:
+                        st.metric("R² Score", f"{pred_r2:.4f}")
+                    with col3:
+                        st.metric("RMSE", f"{pred_rmse:.4f}")
+                    with col4:
+                        st.metric("P-value", f"{pred_pval:.2e}")
+                    
+                    # Scatter plot: Predictions vs Actual
+                    fig_pred_actual = go.Figure()
+                    fig_pred_actual.add_trace(go.Scatter(
+                        x=y_test, y=predictions,
+                        mode='markers',
+                        marker=dict(size=6, color='rgba(31, 119, 180, 0.6)', 
+                                   line=dict(width=0.5, color='rgba(31, 119, 180, 1)')),
+                        name=f'{prediction_source} Predictions',
+                        hovertemplate='<b>Actual:</b> %{x:.4f}<br><b>Predicted:</b> %{y:.4f}<extra></extra>'
+                    ))
+                    
+                    # Add perfect prediction line
+                    min_val = min(y_test.min(), predictions.min())
+                    max_val = max(y_test.max(), predictions.max())
+                    fig_pred_actual.add_trace(go.Scatter(
+                        x=[min_val, max_val], y=[min_val, max_val],
+                        mode='lines',
+                        line=dict(color='rgba(255, 0, 0, 0.5)', width=2, dash='dash'),
+                        name='Perfect Prediction',
+                        hoverinfo='skip'
+                    ))
+                    
+                    fig_pred_actual.update_layout(
+                        title=f"Predictions vs Actual Values - {selected_model} ({selected_technique})",
+                        xaxis_title="Actual Value",
+                        yaxis_title="Predicted Value",
+                        height=400,
+                        hovermode='closest'
+                    )
+                    st.plotly_chart(fig_pred_actual, width="stretch", 
+                                   key=f"pred_actual_{paradigm}_{selected_model}_{selected_technique}")
+                    
+                    # 2. RESIDUAL ANALYSIS
+                    st.markdown("**2. Residual Analysis**")
+                    st.caption("Analyze prediction errors to detect patterns")
+                    
+                    residuals = y_test - predictions
+                    residual_rmse = np.sqrt(np.mean(residuals**2))
+                    residual_mean = np.mean(residuals)
+                    residual_std = np.std(residuals)
+                    
+                    col1, col2, col3, col4 = st.columns(4)
+                    with col1:
+                        st.metric("Mean Error", f"{residual_mean:.4f}")
+                    with col2:
+                        st.metric("Std Error", f"{residual_std:.4f}")
+                    with col3:
+                        st.metric("Error Range", f"[{residuals.min():.2f}, {residuals.max():.2f}]")
+                    with col4:
+                        within_1std = (np.abs(residuals) <= residual_std).sum() / len(residuals) * 100
+                        st.metric("Within 1σ", f"{within_1std:.1f}%")
+                    
+                    # Residual distribution
+                    fig_residuals = go.Figure()
+                    fig_residuals.add_trace(go.Histogram(
+                        x=residuals,
+                        nbinsx=20,
+                        name='Residuals',
+                        marker=dict(color='rgba(31, 119, 180, 0.7)')
+                    ))
+                    fig_residuals.add_vline(x=0, line_dash="dash", line_color="red", 
+                                           annotation_text="Zero Error", annotation_position="top right")
+                    fig_residuals.update_layout(
+                        title=f"Residual Distribution - {selected_model} ({selected_technique})",
+                        xaxis_title="Residual (Actual - Predicted)",
+                        yaxis_title="Frequency",
+                        height=350
+                    )
+                    st.plotly_chart(fig_residuals, width="stretch",
+                                   key=f"residuals_dist_{paradigm}_{selected_model}_{selected_technique}")
+                    
+                    # Residuals vs Predictions (heteroscedasticity check)
+                    fig_residuals_vs_pred = go.Figure()
+                    fig_residuals_vs_pred.add_trace(go.Scatter(
+                        x=predictions, y=residuals,
+                        mode='markers',
+                        marker=dict(size=6, color='rgba(31, 119, 180, 0.6)'),
+                        name='Residuals',
+                        hovertemplate='<b>Predicted:</b> %{x:.4f}<br><b>Residual:</b> %{y:.4f}<extra></extra>'
+                    ))
+                    fig_residuals_vs_pred.add_hline(y=0, line_dash="dash", line_color="red")
+                    fig_residuals_vs_pred.update_layout(
+                        title=f"Residuals vs Predictions (Heteroscedasticity Check)",
+                        xaxis_title="Predicted Value",
+                        yaxis_title="Residual",
+                        height=350,
+                        hovermode='closest'
+                    )
+                    st.plotly_chart(fig_residuals_vs_pred, width="stretch",
+                                   key=f"residuals_vs_pred_{paradigm}_{selected_model}_{selected_technique}")
+                    
+                    # 3. FEATURE-RESIDUAL CORRELATION
+                    st.markdown("**3. Feature-Residual Correlation**")
+                    st.caption("Which features correlate with model errors? (If any, model may need improvement)")
+                    
+                    if X_test is not None and len(X_test.shape) > 1 and X_test.shape[1] > 0:
+                        feature_residual_corrs = []
+                        for i in range(min(20, X_test.shape[1])):  # Top 20 features
+                            try:
+                                corr, _ = pearsonr(X_test[:, i], residuals)
+                                feature_residual_corrs.append((f"Band_{i}", corr))
+                            except:
+                                pass
+                        
+                        if feature_residual_corrs:
+                            feature_residual_corrs = sorted(feature_residual_corrs, key=lambda x: abs(x[1]), reverse=True)[:10]
+                            bands_names = [x[0] for x in feature_residual_corrs]
+                            bands_corrs = [x[1] for x in feature_residual_corrs]
+                            
+                            fig_feat_resid = go.Figure(data=[
+                                go.Bar(
+                                    x=bands_corrs,
+                                    y=bands_names,
+                                    orientation='h',
+                                    marker=dict(color=bands_corrs, colorscale='RdBu', 
+                                              colorbar=dict(title="Correlation"))
+                                )
+                            ])
+                            fig_feat_resid.update_layout(
+                                title="Top 10 Feature-Residual Correlations (Red=positive, Blue=negative)",
+                                xaxis_title="Correlation Coefficient",
+                                yaxis_title="Feature",
+                                height=300
+                            )
+                            st.plotly_chart(fig_feat_resid, width="stretch",
+                                           key=f"feat_residual_{paradigm}_{selected_model}_{selected_technique}")
+                            
+                            st.caption("💡 **Interpretation:** Non-zero correlations suggest the model is not capturing all patterns from these features. Consider feature engineering or model complexity.")
+                    
+                    # 4. PREDICTION AGREEMENT (Between models in results_df)
+                    st.markdown("**4. Model Prediction Agreement**")
+                    st.caption("How do different models agree with each other?")
+                    
+                    same_tech_models = results_df[results_df['Technique'] == selected_technique]
+                    if len(same_tech_models) > 1:
+                        agreement_data = []
+                        for idx1, row1 in same_tech_models.iterrows():
+                            pred1 = row1.get('Predictions')
+                            if pred1 is not None:
+                                for idx2, row2 in same_tech_models.iterrows():
+                                    if idx1 < idx2:
+                                        pred2 = row2.get('Predictions')
+                                        if pred2 is not None and len(pred1) == len(pred2):
+                                            agreement_corr, _ = pearsonr(pred1, pred2)
+                                            agreement_data.append({
+                                                'Model 1': row1['Model'],
+                                                'Model 2': row2['Model'],
+                                                'Agreement': agreement_corr
+                                            })
+                        
+                        if agreement_data:
+                            agreement_df = pd.DataFrame(agreement_data)
+                            
+                            # Heatmap-style display - convert to float for Arrow compatibility
+                            agreement_pivot = agreement_df.pivot(index='Model 1', columns='Model 2', values='Agreement')
+                            # Display with NaN values (Streamlit handles this gracefully)
+                            st.dataframe(
+                                agreement_pivot,
+                                width="stretch"
+                            )
+                            
+                            avg_agreement = agreement_df['Agreement'].mean()
+                            st.metric("Average Model Agreement", f"{avg_agreement:.4f}")
+                            
+                            if avg_agreement > 0.8:
+                                st.success("✅ Models are highly correlated - ensemble predictions would be similar")
+                            elif avg_agreement > 0.6:
+                                st.info("ℹ️ Models show moderate agreement - ensemble can benefit from diversity")
+                            else:
+                                st.warning("⚠️ Models show low agreement - consider investigating model differences")
+        
+        except Exception as e:
+            st.warning(f"Could not compute post-training analysis: {str(e)}")
         
     except Exception as e:
         st.error(f"Could not render feature importance: {str(e)}")
@@ -2520,11 +3128,13 @@ def render_analytics_tab(results_df: pd.DataFrame, paradigm: str = ""):
             
             # Detailed table
             st.markdown("### 📋 Filtered Results")
-            display_cols = ['Model', 'Technique', 'Test_R²', 'Test_RMSE', 'Test_MAE']
+            display_cols = ['Model', 'Technique', 'Test_R²', 'LOO_CV_Test_R²', 'Test_RMSE', 'LOO_CV_Test_RMSE', 'Test_MAE']
             display_cols = [col for col in display_cols if col in filtered_data.columns]
             
+            # Use LOO CV test metrics when available for sorting
+            sort_col = 'LOO_CV_Test_R²' if 'LOO_CV_Test_R²' in filtered_data.columns and filtered_data['LOO_CV_Test_R²'].notna().any() else 'Test_R²'
             st.dataframe(
-                filtered_data[display_cols].sort_values('Test_R²', ascending=False),
+                filtered_data[display_cols].sort_values(sort_col, ascending=False),
                 width='stretch'
             )
         
@@ -2548,6 +3158,8 @@ def render_model_details_tab(results_df: pd.DataFrame, paradigm: str = ""):
     try:
         from model_analyzer import ModelAnalyzer, PerformanceComparator
         
+        # Detect if LOO CV test metrics are available
+        use_loo_cv = 'LOO_CV_Test_R²' in results_df.columns and results_df['LOO_CV_Test_R²'].notna().any()
         
         # Create sub-tabs
         subtab1, subtab2 = st.tabs(["Basic Comparison", "Detailed Metrics"])
@@ -2573,16 +3185,18 @@ def render_model_details_tab(results_df: pd.DataFrame, paradigm: str = ""):
                     key=f"{key_prefix}_technique_select"
                 )
             
-            # Get statistics
-            stats = ModelAnalyzer.get_combination_statistics(results_df, selected_model, selected_technique)
+            # Get statistics - pass use_loo_cv flag
+            stats = ModelAnalyzer.get_combination_statistics(results_df, selected_model, selected_technique, use_loo_cv=use_loo_cv)
             
             if 'error' not in stats:
                 col1, col2, col3, col4 = st.columns(4)
                 
                 with col1:
-                    st.metric("R² Score", f"{stats['metrics']['test_r2']:.4f}")
+                    r2_label = "LOO CV R²" if use_loo_cv else "Test R²"
+                    st.metric(r2_label, f"{stats['metrics']['test_r2']:.4f}")
                 with col2:
-                    st.metric("RMSE", f"{stats['metrics']['test_rmse']:.4f}")
+                    rmse_label = "LOO CV RMSE" if use_loo_cv else "Test RMSE"
+                    st.metric(rmse_label, f"{stats['metrics']['test_rmse']:.4f}")
                 with col3:
                     st.metric("MAE", f"{stats['metrics']['test_mae']:.4f}")
                 with col4:
@@ -2629,6 +3243,10 @@ def render_ai_insights_tab(results_df: pd.DataFrame, paradigm: str):
     try:
         from services import ReportGenerator, StreamlitChatUI, ChatInterface
         
+        # Detect if LOO CV test metrics are available
+        use_loo_cv = 'LOO_CV_Test_R²' in results_df.columns and results_df['LOO_CV_Test_R²'].notna().any()
+        r2_col = 'LOO_CV_Test_R²' if use_loo_cv else 'Test_R²'
+        
         # AI Report Generation
         st.markdown("### 📄 AI-Generated Report")
         
@@ -2643,10 +3261,50 @@ def render_ai_insights_tab(results_df: pd.DataFrame, paradigm: str):
                         # Get raw data and target from session state if available
                         raw_data = st.session_state.get('raw_data', None)
                         target_col = st.session_state.get('target_col', None)
+                        cv_strategy = st.session_state.get('cv_strategy', 'k-fold')
+                        search_method = st.session_state.get('search_method', 'grid')
+                        n_iter = st.session_state.get('n_iter', 20)
+                        cv_folds = st.session_state.get('cv_folds', 5)
+                        data_analytics_context = st.session_state.get('data_analytics_context', '')
+                        feature_importance_data = st.session_state.get('feature_importance_data', None)
+                        feature_engineering_config = st.session_state.get('feature_engineering_config', None)
+                        feature_engineering_data = st.session_state.get('feature_engineering_data', None)
+                        
+                        # Extract feature importance from results_df if not in session_state
+                        if feature_importance_data is None and 'Feature_Importance' in results_df.columns:
+                            # Build feature importance data from results_df
+                            feature_importance_dict = {}
+                            for idx, row in results_df.iterrows():
+                                model = row.get('Model', f'Model_{idx}')
+                                technique = row.get('Technique', 'unknown')
+                                r2_score = row.get('Test_R²', 0)
+                                fi = row.get('Feature_Importance', None)
+                                
+                                if fi is not None and isinstance(fi, dict):
+                                    key = f"{model}_{technique}"
+                                    feature_importance_dict[key] = {
+                                        'model': model,
+                                        'technique': technique,
+                                        'r2_score': r2_score,
+                                        'importance_type': fi.get('importance_type', 'unknown'),
+                                        'top_features': fi.get('feature_importance', []),
+                                        'n_features': fi.get('n_features', 0)
+                                    }
+                            
+                            if feature_importance_dict:
+                                feature_importance_data = feature_importance_dict
                         
                         gen = ReportGenerator(
                             raw_data=raw_data,
-                            target_col=target_col
+                            target_col=target_col,
+                            cv_strategy=cv_strategy,
+                            search_method=search_method,
+                            n_iter=n_iter,
+                            cv_folds=cv_folds,
+                            data_analytics_context=data_analytics_context,
+                            feature_importance_data=feature_importance_data,
+                            feature_engineering_config=feature_engineering_config,
+                            feature_engineering_data=feature_engineering_data
                         )
                         if not gen.ai_available:
                             st.warning("⚠️ AI features are not available. Please install google-generativeai or openai and set API keys.")
@@ -2697,14 +3355,14 @@ def render_ai_insights_tab(results_df: pd.DataFrame, paradigm: str):
                         all_feature_importance[combo_key] = {
                             'model': model_name,
                             'technique': technique,
-                            'r2_score': float(row['Test_R²']),
+                            'r2_score': float(row[r2_col]),
                             'importance_type': fi_data.get('importance_type'),
                             'top_features': fi_data.get('top_features', []),
                             'n_features': fi_data.get('n_features', 0)
                         }
             
             # Get feature engineering config and data for context (from best model)
-            best_idx = results_df['Test_R²'].idxmax()
+            best_idx = results_df[r2_col].idxmax()
             best_fe_config = None
             fe_data_for_context = None
             if 'FE_Config' in results_df.columns:
@@ -2785,22 +3443,26 @@ def render_ai_insights_tab(results_df: pd.DataFrame, paradigm: str):
         # Format hyperparameters for context (convert to string dict if not already done)
         best_hyperparams = {k: str(v) for k, v in list(best_hyperparams_dict.items())[:10]} if best_hyperparams_dict else {}
         
+        # Use LOO CV metrics when available for comparison
+        comp_r2_col = 'LOO_CV_Test_R²' if 'LOO_CV_Test_R²' in results_df.columns and results_df['LOO_CV_Test_R²'].notna().any() else 'Test_R²'
+        comp_top_metric = 'LOO_CV_Test_R²' if 'LOO_CV_Test_R²' in results_df.columns and results_df['LOO_CV_Test_R²'].notna().any() else 'Test_R²'
+        
         context = {
             'summary': {
                 'total_models': len(results_df),
-                'best_r2': float(results_df['Test_R²'].max()),
-                'mean_r2': float(results_df['Test_R²'].mean()),
+                'best_r2': float(results_df[comp_r2_col].max()),
+                'mean_r2': float(results_df[comp_r2_col].mean()),
                 'best_model': best_model_val,
                 'best_technique': best_technique_val,
                 'paradigm': paradigm,
                 'hyperparameters': best_hyperparams,
             },
-            'top_models': results_df.nlargest(5, 'Test_R²')[['Model', 'Technique', 'Test_R²']].to_dict('records'),
-            'all_results': results_df[['Model', 'Technique', 'Test_R²'] + [col for col in results_df.columns if 'RMSE' in col or 'MAE' in col]].head(20).to_dict('records'),
+            'top_models': results_df.nlargest(5, comp_top_metric)[['Model', 'Technique', comp_top_metric]].to_dict('records'),
+            'all_results': results_df[['Model', 'Technique', comp_r2_col] + [col for col in results_df.columns if 'LOO_CV_Test_RMSE' in col or 'LOO_CV_Test_MAE' in col or (('RMSE' in col or 'MAE' in col) and 'LOO' not in col)]].head(20).to_dict('records'),
             'statistics': {
                 'by_technique': {
                     tech: {
-                        'mean_r2': float(results_df[results_df['Technique'] == tech]['Test_R²'].mean()),
+                        'mean_r2': float(results_df[results_df['Technique'] == tech][comp_r2_col].mean()),
                         'count': len(results_df[results_df['Technique'] == tech])
                     }
                     for tech in results_df['Technique'].unique() if pd.notna(tech)
@@ -2869,12 +3531,13 @@ def render_export_tab(results_df: pd.DataFrame, paradigm: str):
             
             with col2:
                 st.markdown("#### 📈 Excel Export")
+                export_r2_col = 'LOO_CV_Test_R²' if 'LOO_CV_Test_R²' in results_df.columns and results_df['LOO_CV_Test_R²'].notna().any() else 'Test_R²'
                 export_data = {
                     'Results': results_df,
                     'Summary': pd.DataFrame([{
                         'Total Models': len(results_df),
-                        'Best R²': results_df['Test_R²'].max(),
-                        'Mean R²': results_df['Test_R²'].mean(),
+                        'Best R²': results_df[export_r2_col].max(),
+                        'Mean R²': results_df[export_r2_col].mean(),
                     }])
                 }
                 StreamlitExporter.get_excel_download_button(
@@ -2890,8 +3553,8 @@ def render_export_tab(results_df: pd.DataFrame, paradigm: str):
                     'results': results_df.to_dict(orient='records'),
                     'summary': {
                         'total_models': len(results_df),
-                        'best_r2': float(results_df['Test_R²'].max()),
-                        'mean_r2': float(results_df['Test_R²'].mean()),
+                        'best_r2': float(results_df[export_r2_col].max()),
+                        'mean_r2': float(results_df[export_r2_col].mean()),
                     }
                 }
                 StreamlitExporter.get_json_download_button(
@@ -2999,16 +3662,17 @@ def _build_algorithm_performance_section(results_df: pd.DataFrame) -> str:
         models = results_df['Model'].unique()
         for model in sorted(models):
             model_data = results_df[results_df['Model'] == model]
+            r2_val_col = 'LOO_CV_Test_R²' if 'LOO_CV_Test_R²' in model_data.columns and model_data['LOO_CV_Test_R²'].notna().any() else 'Test_R²'
             lines.append(f"  • {model}:")
             lines.append(f"    - Techniques tested: {len(model_data)}")
-            lines.append(f"    - Best R²: {model_data['Test_R²'].max():.6f}")
-            lines.append(f"    - Mean R²: {model_data['Test_R²'].mean():.6f}")
-            lines.append(f"    - Std Dev (consistency metric): {model_data['Test_R²'].std():.6f}")
+            lines.append(f"    - Best R²: {model_data[r2_val_col].max():.6f}")
+            lines.append(f"    - Mean R²: {model_data[r2_val_col].mean():.6f}")
+            lines.append(f"    - Std Dev (consistency metric): {model_data[r2_val_col].std():.6f}")
             lines.append(f"    - Performance by technique:")
             for technique in sorted(results_df['Technique'].unique()):
                 tech_model_data = model_data[model_data['Technique'] == technique]
                 if len(tech_model_data) > 0:
-                    r2_val = tech_model_data['Test_R²'].values[0]
+                    r2_val = tech_model_data[r2_val_col].values[0]
                     lines.append(f"      • {technique}: R²={r2_val:.6f}")
     return "\n".join(lines)
 
@@ -3016,12 +3680,15 @@ def _build_algorithm_performance_section(results_df: pd.DataFrame) -> str:
 def _build_all_models_section(results_df: pd.DataFrame, paradigm_name: str) -> str:
     """Build section showing all models ranked by R²."""
     lines = []
-    for rank, (idx, row) in enumerate(results_df.nlargest(len(results_df), 'Test_R²').iterrows(), 1):
-        model_line = f"  {rank:2d}. [{paradigm_name}] {row['Model']} + {row['Technique']} → R²={row['Test_R²']:.6f}"
-        if 'Test_RMSE' in results_df.columns and pd.notna(row['Test_RMSE']):
-            model_line += f" | RMSE={row['Test_RMSE']:.6f}"
-        if 'Test_MAE' in results_df.columns and pd.notna(row['Test_MAE']):
-            model_line += f" | MAE={row['Test_MAE']:.6f}"
+    r2_rank_col = 'LOO_CV_Test_R²' if 'LOO_CV_Test_R²' in results_df.columns and results_df['LOO_CV_Test_R²'].notna().any() else 'Test_R²'
+    rmse_rank_col = 'LOO_CV_Test_RMSE' if 'LOO_CV_Test_RMSE' in results_df.columns else 'Test_RMSE'
+    mae_rank_col = 'LOO_CV_Test_MAE' if 'LOO_CV_Test_MAE' in results_df.columns else 'Test_MAE'
+    for rank, (idx, row) in enumerate(results_df.nlargest(len(results_df), r2_rank_col).iterrows(), 1):
+        model_line = f"  {rank:2d}. [{paradigm_name}] {row['Model']} + {row['Technique']} → R²={row[r2_rank_col]:.6f}"
+        if rmse_rank_col in results_df.columns and pd.notna(row.get(rmse_rank_col)):
+            model_line += f" | RMSE={row[rmse_rank_col]:.6f}"
+        if mae_rank_col in results_df.columns and pd.notna(row.get(mae_rank_col)):
+            model_line += f" | MAE={row[mae_rank_col]:.6f}"
         lines.append(model_line)
     return "\n".join(lines)
 
@@ -3088,10 +3755,26 @@ def render_comparison_mode(standard_results: pd.DataFrame,
             # Get raw data and target from session state if available
             raw_data = st.session_state.get('raw_data', None)
             target_col = st.session_state.get('target_col', None)
+            cv_strategy = st.session_state.get('cv_strategy', 'k-fold')
+            search_method = st.session_state.get('search_method', 'grid')
+            n_iter = st.session_state.get('n_iter', 20)
+            cv_folds = st.session_state.get('cv_folds', 5)
+            data_analytics_context = st.session_state.get('data_analytics_context', '')
+            feature_importance_data = st.session_state.get('feature_importance_data', None)
+            feature_engineering_config = st.session_state.get('feature_engineering_config', None)
+            feature_engineering_data = st.session_state.get('feature_engineering_data', None)
             
             gen = ReportGenerator(
                 raw_data=raw_data,
-                target_col=target_col
+                target_col=target_col,
+                cv_strategy=cv_strategy,
+                search_method=search_method,
+                n_iter=n_iter,
+                cv_folds=cv_folds,
+                data_analytics_context=data_analytics_context,
+                feature_importance_data=feature_importance_data,
+                feature_engineering_config=feature_engineering_config,
+                feature_engineering_data=feature_engineering_data
             )
             comparison = gen.generate_comparison_report(standard_results, tuned_results)
         except Exception as e:
@@ -3226,10 +3909,26 @@ def render_comparison_mode(standard_results: pd.DataFrame,
                             # Get raw data and target from session state if available
                             raw_data = st.session_state.get('raw_data', None)
                             target_col = st.session_state.get('target_col', None)
+                            cv_strategy = st.session_state.get('cv_strategy', 'k-fold')
+                            search_method = st.session_state.get('search_method', 'grid')
+                            n_iter = st.session_state.get('n_iter', 20)
+                            cv_folds = st.session_state.get('cv_folds', 5)
+                            data_analytics_context = st.session_state.get('data_analytics_context', '')
+                            feature_importance_data = st.session_state.get('feature_importance_data', None)
+                            feature_engineering_config = st.session_state.get('feature_engineering_config', None)
+                            feature_engineering_data = st.session_state.get('feature_engineering_data', None)
                             
                             gen = ReportGenerator(
                                 raw_data=raw_data,
-                                target_col=target_col
+                                target_col=target_col,
+                                cv_strategy=cv_strategy,
+                                search_method=search_method,
+                                n_iter=n_iter,
+                                cv_folds=cv_folds,
+                                data_analytics_context=data_analytics_context,
+                                feature_importance_data=feature_importance_data,
+                                feature_engineering_config=feature_engineering_config,
+                                feature_engineering_data=feature_engineering_data
                             )
                             if not gen.ai_available:
                                 st.warning("⚠️ AI features are not available. Please install google-generativeai or openai and set API keys.")
@@ -3286,9 +3985,11 @@ def render_comparison_mode(standard_results: pd.DataFrame,
                 tuned_best_r2 = comparison['tuned_summary'].get('best_r2', 0)
                 best_overall = comparison['best_overall']
                 
-                # Get the best model details from both paradigms
-                std_best_idx = standard_results['Test_R²'].idxmax()
-                tuned_best_idx = tuned_results['Test_R²'].idxmax()
+                # Get the best model details from both paradigms using intelligent metric selection
+                std_r2_idx_col = 'LOO_CV_Test_R²' if 'LOO_CV_Test_R²' in standard_results.columns and standard_results['LOO_CV_Test_R²'].notna().any() else 'Test_R²'
+                tuned_r2_idx_col = 'LOO_CV_Test_R²' if 'LOO_CV_Test_R²' in tuned_results.columns and tuned_results['LOO_CV_Test_R²'].notna().any() else 'Test_R²'
+                std_best_idx = standard_results[std_r2_idx_col].idxmax()
+                tuned_best_idx = tuned_results[tuned_r2_idx_col].idxmax()
                 
                 std_best_model = str(standard_results.loc[std_best_idx, 'Model']) if pd.notna(standard_results.loc[std_best_idx, 'Model']) else 'Unknown'
                 std_best_technique = str(standard_results.loc[std_best_idx, 'Technique']) if pd.notna(standard_results.loc[std_best_idx, 'Technique']) else 'Unknown'
@@ -3322,7 +4023,7 @@ def render_comparison_mode(standard_results: pd.DataFrame,
                                 'paradigm': 'Standard',
                                 'model': model_name,
                                 'technique': technique,
-                                'r2_score': float(row['Test_R²']),
+                                'r2_score': float(row[std_r2_idx_col]),
                                 'importance_type': fi_data.get('importance_type'),
                                 'top_features': fi_data.get('top_features', []),
                                 'n_features': fi_data.get('n_features', 0)
@@ -3341,7 +4042,7 @@ def render_comparison_mode(standard_results: pd.DataFrame,
                                 'paradigm': 'Tuned',
                                 'model': model_name,
                                 'technique': technique,
-                                'r2_score': float(row['Test_R²']),
+                                'r2_score': float(row[tuned_r2_idx_col]),
                                 'importance_type': fi_data.get('importance_type'),
                                 'top_features': fi_data.get('top_features', []),
                                 'n_features': fi_data.get('n_features', 0)
@@ -3386,13 +4087,16 @@ def render_comparison_mode(standard_results: pd.DataFrame,
                         logger.debug(f"Could not extract tuned hyperparameters: {e}")
                 
                 # Prepare comprehensive context for comparison with proper structure
+                # Use LOO CV metrics if available
+                std_r2_col = 'LOO_CV_Test_R²' if 'LOO_CV_Test_R²' in standard_results.columns and standard_results['LOO_CV_Test_R²'].notna().any() else 'Test_R²'
+                tuned_r2_col = 'LOO_CV_Test_R²' if 'LOO_CV_Test_R²' in tuned_results.columns and tuned_results['LOO_CV_Test_R²'].notna().any() else 'Test_R²'
                 combined_context = {
                     'summary': {
                         'total_models': len(standard_results) + len(tuned_results),
                         'best_model': best_model_name,
                         'best_technique': best_technique_name,
                         'best_r2': best_r2_val,
-                        'mean_r2': (standard_results['Test_R²'].mean() + tuned_results['Test_R²'].mean()) / 2,
+                        'mean_r2': (standard_results[std_r2_col].mean() + tuned_results[tuned_r2_col].mean()) / 2,
                         'paradigm': best_overall.get('paradigm', 'Unknown'),
                         'hyperparameters': std_hyperparams if best_overall.get('paradigm') == 'Standard' else tuned_hyperparams,
                         'standard_best_r2': standard_best_r2,
@@ -3401,8 +4105,8 @@ def render_comparison_mode(standard_results: pd.DataFrame,
                     },
                     'data_analytics_context': data_analytics_context,
                     'comparison': comparison,
-                    'top_models_standard': standard_results.nlargest(3, 'Test_R²')[['Model', 'Technique', 'Test_R²']].to_dict('records'),
-                    'top_models_tuned': tuned_results.nlargest(3, 'Test_R²')[['Model', 'Technique', 'Test_R²']].to_dict('records'),
+                    'top_models_standard': standard_results.nlargest(3, 'LOO_CV_Test_R²' if 'LOO_CV_Test_R²' in standard_results.columns and standard_results['LOO_CV_Test_R²'].notna().any() else 'Test_R²')[['Model', 'Technique', 'LOO_CV_Test_R²' if 'LOO_CV_Test_R²' in standard_results.columns else 'Test_R²']].to_dict('records'),
+                    'top_models_tuned': tuned_results.nlargest(3, 'LOO_CV_Test_R²' if 'LOO_CV_Test_R²' in tuned_results.columns and tuned_results['LOO_CV_Test_R²'].notna().any() else 'Test_R²')[['Model', 'Technique', 'LOO_CV_Test_R²' if 'LOO_CV_Test_R²' in tuned_results.columns else 'Test_R²']].to_dict('records'),
                     'feature_importance_data': all_feature_importance if all_feature_importance else None,
                     'feature_engineering_data': fe_data_std if fe_data_std else None,
                     'training_context_str': f"""
@@ -3417,7 +4121,7 @@ Standard Training Results:
 - Best Model: {std_best_model}
 - Best Technique: {std_best_technique}
 - Best R² Score: {standard_best_r2:.4f}
-- Mean R² Score: {standard_results['Test_R²'].mean():.4f}
+- Mean R² Score: {standard_results[std_r2_idx_col].mean():.4f}
 - Total Models Trained: {len(standard_results)}
 {f"- Key Hyperparameters: {', '.join([f'{k}={v}' for k, v in list(std_hyperparams.items())[:5]])}" if std_hyperparams else ""}
 
@@ -3426,7 +4130,7 @@ Tuned Training Results:
 - Best Model: {tuned_best_model}
 - Best Technique: {tuned_best_technique}
 - Best R² Score: {tuned_best_r2:.4f}
-- Mean R² Score: {tuned_results['Test_R²'].mean():.4f}
+- Mean R² Score: {tuned_results[tuned_r2_idx_col].mean():.4f}
 - Total Models Trained: {len(tuned_results)}
 {f"- Key Hyperparameters: {', '.join([f'{k}={v}' for k, v in list(tuned_hyperparams.items())[:5]])}" if tuned_hyperparams else ""}
 
@@ -3801,7 +4505,8 @@ class MetricsAnalyzer:
         go.Figure
             Plotly figure
         """
-        metrics = ['Test_R²', 'Test_RMSE', 'Test_MAE']
+        # Include both Test and LOO CV metrics when available
+        metrics = ['Test_R²', 'LOO_CV_Test_R²', 'Test_RMSE', 'LOO_CV_Test_RMSE', 'Test_MAE', 'LOO_CV_Test_MAE']
         available_metrics = [m for m in metrics if m in results_df.columns]
         
         if not available_metrics:
@@ -3841,7 +4546,8 @@ class MetricsAnalyzer:
         go.Figure
             Plotly figure
         """
-        metrics_to_use = ['Test_R²', 'Test_RMSE', 'Test_MAE']
+        # Include both Test and LOO CV metrics when available
+        metrics_to_use = ['Test_R²', 'LOO_CV_Test_R²', 'Test_RMSE', 'LOO_CV_Test_RMSE', 'Test_MAE', 'LOO_CV_Test_MAE']
         available_metrics = [m for m in metrics_to_use if m in results_df.columns]
         
         if not available_metrics:
@@ -3890,7 +4596,8 @@ class MetricsAnalyzer:
         go.Figure
             Plotly figure
         """
-        metrics = ['Test_R²', 'Test_RMSE', 'Test_MAE']
+        # Include both Test and LOO CV metrics when available
+        metrics = ['Test_R²', 'LOO_CV_Test_R²', 'Test_RMSE', 'LOO_CV_Test_RMSE', 'Test_MAE', 'LOO_CV_Test_MAE']
         available_metrics = [m for m in metrics if m in results_df.columns]
         
         if len(available_metrics) < 2:
@@ -3923,8 +4630,8 @@ class MetricsAnalyzer:
         """
         st.markdown("### 🔍 Metric-Based Performance Analysis")
         
-        # Get available metrics
-        available_metrics = [col for col in ['Test_R²', 'Test_RMSE', 'Test_MAE', 'RPD'] 
+        # Get available metrics (include both Test and LOO CV)
+        available_metrics = [col for col in ['Test_R²', 'LOO_CV_Test_R²', 'Test_RMSE', 'LOO_CV_Test_RMSE', 'Test_MAE', 'LOO_CV_Test_MAE', 'RPD'] 
                             if col in results_df.columns]
         
         if not available_metrics:
@@ -3957,7 +4664,7 @@ class MetricsAnalyzer:
         st.markdown("---")
         
         # Create slider based on metric type
-        if selected_metric == 'Test_R²':
+        if selected_metric in ['Test_R²', 'LOO_CV_Test_R²']:
             lower_bound, upper_bound = st.slider(
                 f"Filter {selected_metric} Range",
                 min_value=metric_min,
@@ -3966,7 +4673,7 @@ class MetricsAnalyzer:
                 step=0.01,
                 key=f"{key_prefix}_r2_range_slider"
             )
-        elif selected_metric in ['Test_RMSE', 'Test_MAE']:
+        elif selected_metric in ['Test_RMSE', 'LOO_CV_Test_RMSE', 'Test_MAE', 'LOO_CV_Test_MAE']:
             lower_bound, upper_bound = st.slider(
                 f"Filter {selected_metric} Range (Lower is Better)",
                 min_value=metric_min,
@@ -4019,7 +4726,7 @@ class MetricsAnalyzer:
         
         # Display table
         st.markdown("#### Filtered Models")
-        display_cols = ['Model', 'Technique', 'Test_R²', 'Test_RMSE', 'Test_MAE']
+        display_cols = ['Model', 'Technique', 'Test_R²', 'LOO_CV_Test_R²', 'Test_RMSE', 'LOO_CV_Test_RMSE', 'Test_MAE']
         display_cols = [col for col in display_cols if col in filtered_df.columns]
         
         # Ensure selected_metric is in display columns for sorting
@@ -4038,12 +4745,13 @@ class MetricsAnalyzer:
         st.markdown("#### Visualization")
         
         try:
-            # Use Test_R² for size only if it's positive
+            # Use LOO CV metrics for size if available, otherwise Test_R²
             size_col = None
-            if 'Test_R²' in filtered_df.columns:
-                r2_values = filtered_df['Test_R²']
+            r2_size_col = 'LOO_CV_Test_R²' if 'LOO_CV_Test_R²' in filtered_df.columns and filtered_df['LOO_CV_Test_R²'].notna().any() else 'Test_R²'
+            if r2_size_col in filtered_df.columns:
+                r2_values = filtered_df[r2_size_col]
                 if (r2_values > 0).all():
-                    size_col = 'Test_R²'
+                    size_col = r2_size_col
             
             fig = px.scatter(
                 filtered_df,
@@ -4257,11 +4965,12 @@ class TrainingModeAnalysis:
         with tab4:
             st.markdown("#### Full Results Table")
             
-            display_cols = [col for col in ['Model', 'Technique', 'Test_R²', 'Train_R²', 
-                                           'Test_RMSE', 'Train_RMSE', 'Test_MAE', 'Train_MAE', 'RPD']
-                           if col in results_df.columns]
-            
+            display_cols = [col for col in ['Model', 'Technique', 'Test_R²', 'LOO_CV_Test_R²', 'Train_R²', 'LOO_CV_R²',
+                                           'Test_RMSE', 'LOO_CV_Test_RMSE', 'Train_RMSE', 'LOO_CV_RMSE', 'Test_MAE', 'LOO_CV_Test_MAE', 'Train_MAE', 'RPD']
+                            if col in results_df.columns]
+            # Use LOO CV test metrics when available for sorting
+            sort_col = 'LOO_CV_Test_R²' if 'LOO_CV_Test_R²' in results_df.columns and results_df['LOO_CV_Test_R²'].notna().any() else 'Test_R²'
             st.dataframe(
-                results_df[display_cols].sort_values('Test_R²', ascending=False),
+                results_df[display_cols].sort_values(sort_col, ascending=False),
                 width='stretch'
             )

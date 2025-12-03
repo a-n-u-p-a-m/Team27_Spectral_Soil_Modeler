@@ -19,6 +19,8 @@ from sklearn.metrics import (
     mean_squared_error, r2_score, mean_absolute_error,
     mean_absolute_percentage_error
 )
+from sklearn.model_selection import LeaveOneOut
+from sklearn.base import clone as sklearn_clone
 import logging
 
 logger = logging.getLogger(__name__)
@@ -180,6 +182,88 @@ class ModelEvaluator:
         
         self.metrics_extended = pd.DataFrame(extended_metrics_list)
         return self.metrics_extended
+
+
+    def leave_one_out_evaluation(self,
+                                 model,
+                                 X: np.ndarray,
+                                 y: np.ndarray,
+                                 feature_names: Optional[List[str]] = None,
+                                 model_name: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Perform Leave-One-Out cross-validation for a given estimator.
+
+        Parameters
+        ----------
+        model : estimator
+            A scikit-learn-compatible estimator (implements fit/predict).
+        X : np.ndarray or pd.DataFrame
+            Feature matrix (n_samples, n_features).
+        y : np.ndarray or pd.Series
+            Target vector (n_samples,).
+        feature_names : list[str], optional
+            Optional feature names for downstream reporting.
+        model_name : str, optional
+            Optional name used when storing residuals.
+
+        Returns
+        -------
+        dict
+            Dictionary containing LOO predictions, true values and aggregated metrics.
+        """
+        # Ensure numpy arrays
+        if isinstance(X, pd.DataFrame):
+            X_arr = X.values
+        else:
+            X_arr = np.asarray(X)
+
+        if isinstance(y, (pd.Series, pd.DataFrame)):
+            y_arr = np.asarray(y).ravel()
+        else:
+            y_arr = np.asarray(y).ravel()
+
+        loo = LeaveOneOut()
+        preds = np.zeros_like(y_arr, dtype=float)
+
+        n_splits = 0
+        for train_idx, test_idx in loo.split(X_arr):
+            n_splits += 1
+            X_tr, X_te = X_arr[train_idx], X_arr[test_idx]
+            y_tr, y_te = y_arr[train_idx], y_arr[test_idx]
+
+            # Clone the model to avoid state carryover
+            try:
+                estimator = sklearn_clone(model)
+            except Exception:
+                estimator = model
+
+            # Fit and predict
+            try:
+                estimator.fit(X_tr, y_tr)
+                p = estimator.predict(X_te)
+            except Exception as e:
+                logger.error(f"LOO fold training/prediction error: {e}")
+                p = np.array([np.nan])
+
+            preds[test_idx] = np.asarray(p).ravel()
+
+        # Compute aggregated metrics
+        metrics = self.compute_extended_metrics(y_arr, preds, model_name=model_name)
+
+        result = {
+            'model_name': model_name or getattr(model, '__class__', type(model)).__name__,
+            'n_splits': n_splits,
+            'y_true': y_arr,
+            'y_pred': preds,
+            'metrics': metrics
+        }
+
+        # Store residuals mapping if model_name provided
+        if model_name:
+            residuals = y_arr - preds
+            self.residuals[model_name] = residuals
+
+        return result
     
     
     def get_feature_importance_analysis(self, model_trainer, X_train: np.ndarray,

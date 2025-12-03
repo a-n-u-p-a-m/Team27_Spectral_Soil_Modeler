@@ -504,7 +504,11 @@ class ContextBuilder:
                               data_analytics_context: Optional[str] = None,
                               feature_engineering_config: Optional[Dict[str, Any]] = None,
                               feature_engineering_data: Optional[Dict[str, Any]] = None,
-                              feature_importance_data: Optional[Dict[str, Any]] = None) -> str:
+                              feature_importance_data: Optional[Dict[str, Any]] = None,
+                              cv_strategy: Optional[str] = None,
+                              search_method: Optional[str] = None,
+                              n_iter: Optional[int] = None,
+                              cv_folds: Optional[int] = None) -> str:
         """
         Build comprehensive training results context.
         
@@ -526,6 +530,14 @@ class ContextBuilder:
             Calculated feature engineering values and statistics
         feature_importance_data : Optional[Dict[str, Any]]
             Feature importance data from all models
+        cv_strategy : Optional[str]
+            Cross-validation strategy used ('k-fold' or 'leave-one-out')
+        search_method : Optional[str]
+            Hyperparameter search method ('grid' or 'random')
+        n_iter : Optional[int]
+            Number of iterations for RandomizedSearch
+        cv_folds : Optional[int]
+            Number of CV folds for K-Fold strategy
             
         Returns
         -------
@@ -662,7 +674,82 @@ class ContextBuilder:
                 f"  • Best Model: {results_df.loc[results_df['Test_R²'].idxmax(), 'Model']}",
                 f"  • Best Technique: {results_df.loc[results_df['Test_R²'].idxmax(), 'Technique']}",
                 "",
+                "TRAINING CONFIGURATION:",
+                f"  • Cross-Validation Strategy: {cv_strategy.upper() if cv_strategy else 'K-Fold (default)'}",
+                "",
             ])
+            
+            # Add CV strategy details
+            if cv_strategy and cv_strategy.lower() == 'leave-one-out':
+                context_parts.extend([
+                    "  Cross-Validation Details (Leave-One-Out):",
+                    f"    - Each sample left out exactly once for validation",
+                    f"    - Number of folds: {len(raw_data)} (one per sample)",
+                    f"    - Provides: Unbiased performance estimate on small datasets",
+                    f"    - Trade-off: Computationally intensive but most robust CV method",
+                    "",
+                ])
+                
+                # Add LOO CV metrics if available
+                if any(col for col in results_df.columns if 'LOO_CV' in col):
+                    context_parts.extend([
+                        "  Leave-One-Out Cross-Validation Metrics (Test Set):",
+                        ""
+                    ])
+                    
+                    # Check for LOO CV metrics in results
+                    loo_cv_cols = [col for col in results_df.columns if 'LOO_CV_Test' in col]
+                    if loo_cv_cols:
+                            context_parts.append("  Available LOO CV Metrics:")
+                            for col in sorted(loo_cv_cols):
+                                # Only process columns with scalar numeric values
+                                vals = results_df[col]
+                                if pd.notna(vals).any() and vals.apply(lambda x: isinstance(x, (int, float, np.integer, np.floating))).all():
+                                    mean_val = vals.mean()
+                                    std_val = vals.std()
+                                    max_val = vals.max()
+                                    context_parts.append(f"    • {col}:")
+                                    context_parts.append(f"      - Mean: {mean_val:.6f}")
+                                    context_parts.append(f"      - Std Dev: {std_val:.6f}")
+                                    context_parts.append(f"      - Best: {max_val:.6f}")
+                            context_parts.append("")
+                            context_parts.extend([
+                                "  Interpretation: LOO CV metrics provide unbiased estimates of generalization",
+                                "  performance since each prediction is made on a held-out sample.",
+                                ""
+                            ])     
+            else:
+                context_parts.extend([
+                    "  Cross-Validation Details (K-Fold):",
+                    f"    - Folds: {cv_folds if cv_folds else 5} (default)",
+                    f"    - Data split: {100//(cv_folds if cv_folds else 5)}% test per fold",
+                    f"    - Trade-off: Faster than LOO CV, good balance of bias and variance",
+                    "",
+                ])
+            
+            # Add hyperparameter tuning configuration
+            if paradigm_info['paradigm'] == 'TUNED' or paradigm_info['paradigm'] == 'BOTH':
+                context_parts.extend([
+                    "HYPERPARAMETER TUNING CONFIGURATION:",
+                    f"  • Search Method: {'GridSearch (exhaustive)' if search_method and search_method.lower() == 'grid' else 'RandomizedSearch (sampled)'}",
+                ])
+                
+                if search_method and search_method.lower() == 'grid':
+                    context_parts.extend([
+                        "    - Grid Search: Tests all parameter combinations in large parameter grid",
+                        "    - Advantage: Comprehensive exploration of hyperparameter space",
+                        "    - Trade-off: Higher computational cost but more thorough",
+                    ])
+                else:
+                    context_parts.extend([
+                        f"    - Randomized Search: Tests {n_iter if n_iter else 20} random parameter combinations from small grid",
+                        "    - Advantage: Faster than grid search, good for quick exploration",
+                        "    - Trade-off: May miss optimal parameters but computationally efficient",
+                    ])
+                
+                context_parts.append("")
+            
+            context_parts.append("")
             
             # Add paradigm-specific details
             if paradigm_info['paradigm'] == 'TUNED':
@@ -722,7 +809,7 @@ class ContextBuilder:
             context_parts.append("")
             
             context_parts.extend([
-                "ALL MODEL RESULTS (Ranked by R² Score):",
+                "ALL MODEL RESULTS (Ranked by Test R² Score):",
                 "",
             ])
             
@@ -730,18 +817,38 @@ class ContextBuilder:
             for idx, row in results_df.nlargest(len(results_df), 'Test_R²').iterrows():
                 model_info = [
                     f"  {idx + 1}. {row['Model']} - {row['Technique']}",
-                    f"     R² Score: {row['Test_R²']:.6f}",
                 ]
                 
-                # Add other metrics if available
+                # Add Test metrics
+                model_info.append(f"     TEST SET METRICS:")
+                if 'Test_R²' in results_df.columns:
+                    model_info.append(f"       • R² Score: {row['Test_R²']:.6f}")
                 if 'Test_RMSE' in results_df.columns:
-                    model_info.append(f"     RMSE: {row['Test_RMSE']:.6f}")
+                    model_info.append(f"       • RMSE: {row['Test_RMSE']:.6f}")
                 if 'Test_MAE' in results_df.columns:
-                    model_info.append(f"     MAE: {row['Test_MAE']:.6f}")
-                if 'Test_MAPE' in results_df.columns:
-                    model_info.append(f"     MAPE: {row['Test_MAPE']:.6f}")
-                if 'RPD' in results_df.columns:
-                    model_info.append(f"     RPD: {row['RPD']:.6f}")
+                    model_info.append(f"       • MAE: {row['Test_MAE']:.6f}")
+                if 'RPD' in results_df.columns and pd.notna(row['RPD']):
+                    model_info.append(f"       • RPD: {row['RPD']:.6f}")
+                
+                # Add LOO CV metrics if available
+                loo_cv_metrics_found = False
+                if 'LOO_CV_Test_R²' in results_df.columns and pd.notna(row['LOO_CV_Test_R²']):
+                    if not loo_cv_metrics_found:
+                        model_info.append(f"     LEAVE-ONE-OUT CV TEST METRICS:")
+                        loo_cv_metrics_found = True
+                    model_info.append(f"       • LOO CV R² Score: {row['LOO_CV_Test_R²']:.6f}")
+                
+                if 'LOO_CV_Test_RMSE' in results_df.columns and pd.notna(row['LOO_CV_Test_RMSE']):
+                    if not loo_cv_metrics_found:
+                        model_info.append(f"     LEAVE-ONE-OUT CV TEST METRICS:")
+                        loo_cv_metrics_found = True
+                    model_info.append(f"       • LOO CV RMSE: {row['LOO_CV_Test_RMSE']:.6f}")
+                
+                if 'LOO_CV_Test_MAE' in results_df.columns and pd.notna(row['LOO_CV_Test_MAE']):
+                    if not loo_cv_metrics_found:
+                        model_info.append(f"     LEAVE-ONE-OUT CV TEST METRICS:")
+                        loo_cv_metrics_found = True
+                    model_info.append(f"       • LOO CV MAE: {row['LOO_CV_Test_MAE']:.6f}")
                 
                 # Add hyperparameters if available
                 if 'Hyperparameters' in results_df.columns and pd.notna(row['Hyperparameters']):
@@ -764,9 +871,12 @@ class ContextBuilder:
                     tech_data = results_df[results_df['Technique'] == tech]
                     context_parts.append(f"  • {tech}:")
                     context_parts.append(f"    - Models: {len(tech_data)}")
-                    context_parts.append(f"    - Best R²: {tech_data['Test_R²'].max():.6f}")
-                    context_parts.append(f"    - Mean R²: {tech_data['Test_R²'].mean():.6f}")
-                    context_parts.append(f"    - Std Dev: {tech_data['Test_R²'].std():.6f}")
+                    context_parts.append(f"    - Test R² - Best: {tech_data['Test_R²'].max():.6f}, Mean: {tech_data['Test_R²'].mean():.6f}, Std Dev: {tech_data['Test_R²'].std():.6f}")
+                    
+                    # Add LOO CV metrics if available
+                    if 'LOO_CV_Test_R²' in tech_data.columns and tech_data['LOO_CV_Test_R²'].notna().any():
+                        loo_data = tech_data['LOO_CV_Test_R²'].dropna()
+                        context_parts.append(f"    - LOO CV Test R² - Best: {loo_data.max():.6f}, Mean: {loo_data.mean():.6f}, Std Dev: {loo_data.std():.6f}")
                 
                 context_parts.append("")
             
@@ -784,9 +894,12 @@ class ContextBuilder:
                     model_data = results_df[results_df['Model'] == model]
                     context_parts.append(f"  • {model}:")
                     context_parts.append(f"    - Techniques tested: {len(model_data)}")
-                    context_parts.append(f"    - Best R²: {model_data['Test_R²'].max():.6f}")
-                    context_parts.append(f"    - Mean R²: {model_data['Test_R²'].mean():.6f}")
-                    context_parts.append(f"    - Std Dev (consistency metric): {model_data['Test_R²'].std():.6f}")
+                    context_parts.append(f"    - Test R² - Best: {model_data['Test_R²'].max():.6f}, Mean: {model_data['Test_R²'].mean():.6f}, Std Dev: {model_data['Test_R²'].std():.6f}")
+                    
+                    # Add LOO CV metrics if available
+                    if 'LOO_CV_Test_R²' in model_data.columns and model_data['LOO_CV_Test_R²'].notna().any():
+                        loo_data = model_data['LOO_CV_Test_R²'].dropna()
+                        context_parts.append(f"    - LOO CV Test R² - Best: {loo_data.max():.6f}, Mean: {loo_data.mean():.6f}, Std Dev: {loo_data.std():.6f}")
                     
                     # Add per-technique breakdown for this model
                     context_parts.append(f"    - Performance by technique:")
@@ -794,7 +907,14 @@ class ContextBuilder:
                         tech_model_data = model_data[model_data['Technique'] == technique]
                         if len(tech_model_data) > 0:
                             r2_val = tech_model_data['Test_R²'].values[0]
-                            context_parts.append(f"      • {technique}: R²={r2_val:.6f}")
+                            metrics_str = f"      • {technique}: Test R²={r2_val:.6f}"
+                            
+                            # Add LOO CV if available
+                            if 'LOO_CV_Test_R²' in results_df.columns and pd.notna(tech_model_data['LOO_CV_Test_R²'].values[0]):
+                                loo_r2 = tech_model_data['LOO_CV_Test_R²'].values[0]
+                                metrics_str += f", LOO CV R²={loo_r2:.6f}"
+                            
+                            context_parts.append(metrics_str)
                 
                 context_parts.append("")
             
@@ -846,18 +966,48 @@ class ContextBuilder:
                     
                     context_parts.append("")
             
+            # Add feature importance methods explanation
+            context_parts.extend([
+                "=" * 80,
+                "FEATURE IMPORTANCE ANALYSIS METHODS",
+                "=" * 80,
+                "",
+                "Feature Importance Calculation Methods Used:",
+                "",
+                "Tree-Based Models (GBRT, Cubist):",
+                "  • Method: Gini/Entropy impurity-based importance from decision trees",
+                "  • Interpretation: Higher values = features more critical for splits",
+                "  • Characteristics: Fast computation, biased toward high-cardinality features",
+                "",
+                "Linear Models (PLSR):",
+                "  • Method: Standardized regression coefficient absolute values",
+                "  • Interpretation: Shows relative weight of each feature in predictions",
+                "  • Characteristics: Directly interpretable, accounts for multicollinearity",
+                "",
+                "Kernel Methods (KRR, SVR):",
+                "  • Method: Permutation importance (feature shuffling impact on error)",
+                "  • Interpretation: Decrease in model performance when feature is randomized",
+                "  • Characteristics: Model-agnostic, reliable across all model types",
+                "",
+                "Overall Context:",
+                "  • Feature importance helps identify key spectral bands for soil properties",
+                "  • Different models may emphasize different features (ensemble approach)",
+                "  • Use feature importance to guide dimensionality reduction or feature engineering",
+                "",
+            ])
+            
             # Add feature importance information if provided
             # Handle both single model importance and multiple models importance dict
-            if feature_importance_data:
-                context_parts.extend([
-                    "=" * 80,
-                    "FEATURE IMPORTANCE ANALYSIS FOR ALL MODEL-TECHNIQUE COMBINATIONS",
-                    "=" * 80,
-                    ""
-                ])
-                
-                # Check if it's a dictionary of multiple models or single model
-                if isinstance(feature_importance_data, dict):
+            if feature_importance_data and isinstance(feature_importance_data, dict) and len(feature_importance_data) > 0:
+                try:
+                    context_parts.extend([
+                        "=" * 80,
+                        "FEATURE IMPORTANCE ANALYSIS FOR ALL MODEL-TECHNIQUE COMBINATIONS",
+                        "=" * 80,
+                        ""
+                    ])
+                    
+                    # Check if it's a dictionary of multiple models or single model
                     # If it has 'top_features' key, it's old format (single model)
                     if 'top_features' in feature_importance_data:
                         context_parts.extend([
@@ -869,14 +1019,20 @@ class ContextBuilder:
                             ""
                         ])
                         
-                        for i, feat in enumerate(feature_importance_data['top_features'][:10], 1):
-                            band_idx = feat['index']
-                            importance = feat['importance']
-                            context_parts.append(f"  {i:2d}. Band {band_idx:3d}: {importance:.6f}")
+                        top_features = feature_importance_data.get('top_features', [])
+                        if isinstance(top_features, list):
+                            for i, feat in enumerate(top_features[:10], 1):
+                                if isinstance(feat, dict):
+                                    band_idx = feat.get('index', 0)
+                                    importance = feat.get('importance', 0)
+                                    context_parts.append(f"  {i:2d}. Band {band_idx:3d}: {importance:.6f}")
                     else:
                         # Multiple models format - iterate through all models
                         for combo_key, fi_info in sorted(feature_importance_data.items(), 
-                                                         key=lambda x: x[1].get('r2_score', 0), reverse=True):
+                                                         key=lambda x: x[1].get('r2_score', 0) if isinstance(x[1], dict) else 0, reverse=True):
+                            if not isinstance(fi_info, dict):
+                                continue
+                                
                             model_name = fi_info.get('model', 'Unknown')
                             technique = fi_info.get('technique', 'Unknown')
                             r2_score = fi_info.get('r2_score', 0)
@@ -892,26 +1048,27 @@ class ContextBuilder:
                                 ""
                             ])
                             
-                            for i, feat in enumerate(top_features[:10], 1):
-                                band_idx = feat.get('index', 0)
-                                importance = feat.get('importance', 0)
-                                context_parts.append(f"    {i:2d}. Band {band_idx:3d}: {importance:.6f}")
+                            if isinstance(top_features, list):
+                                for i, feat in enumerate(top_features[:10], 1):
+                                    if isinstance(feat, dict):
+                                        band_idx = feat.get('index', 0)
+                                        importance = feat.get('importance', 0)
+                                        context_parts.append(f"    {i:2d}. Band {band_idx:3d}: {importance:.6f}")
                             
                             context_parts.append("")
-                
-                context_parts.extend([
-                    "Interpretation: These spectral bands had the strongest influence on each model's",
-                    "predictions for soil property estimation. Compare importance across models to identify",
-                    "consistently important bands and model-specific sensitivities.",
-                    ""
-                ])
+                except Exception as fe:
+                    logger.warning(f"Error processing feature importance data: {fe}")
+                    # Continue with rest of context building
             
             context_parts.append("=" * 80)
             
             return "\n".join(context_parts)
             
         except Exception as e:
-            logger.error(f"Error building training context: {e}")
+            logger.error(f"Error building training context: {e}", exc_info=True)
+            logger.error(f"Exception type: {type(e).__name__}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
             return f"Training context: {len(results_df)} models trained"
     
     
@@ -2355,7 +2512,13 @@ class ReportGenerator:
     """Generate AI-powered reports on training results."""
     
     def __init__(self, ai_provider: str = "gemini", api_key: Optional[str] = None,
-                 raw_data: Optional[pd.DataFrame] = None, target_col: Optional[str] = None):
+                 raw_data: Optional[pd.DataFrame] = None, target_col: Optional[str] = None,
+                 cv_strategy: Optional[str] = None, search_method: Optional[str] = None,
+                 n_iter: Optional[int] = None, cv_folds: Optional[int] = None,
+                 data_analytics_context: Optional[str] = None,
+                 feature_importance_data: Optional[Dict[str, Any]] = None,
+                 feature_engineering_config: Optional[Dict[str, Any]] = None,
+                 feature_engineering_data: Optional[Dict[str, Any]] = None):
         """
         Initialize report generator.
         
@@ -2369,11 +2532,35 @@ class ReportGenerator:
             Raw dataset for context
         target_col : str, optional
             Target column name
+        cv_strategy : Optional[str]
+            Cross-validation strategy used ('k-fold' or 'leave-one-out')
+        search_method : Optional[str]
+            Hyperparameter search method ('grid' or 'random')
+        n_iter : Optional[int]
+            Number of iterations for RandomizedSearch
+        cv_folds : Optional[int]
+            Number of CV folds for K-Fold strategy
+        data_analytics_context : Optional[str]
+            Data analytics context string
+        feature_importance_data : Optional[Dict[str, Any]]
+            Feature importance data from all models
+        feature_engineering_config : Optional[Dict[str, Any]]
+            Feature engineering configuration
+        feature_engineering_data : Optional[Dict[str, Any]]
+            Feature engineering statistics and values
         """
         self.ai_provider = ai_provider.lower()
         self.api_key = api_key
         self.raw_data = raw_data
         self.target_col = target_col
+        self.cv_strategy = cv_strategy
+        self.search_method = search_method
+        self.n_iter = n_iter
+        self.cv_folds = cv_folds
+        self.data_analytics_context = data_analytics_context
+        self.feature_importance_data = feature_importance_data
+        self.feature_engineering_config = feature_engineering_config
+        self.feature_engineering_data = feature_engineering_data
         
         # Try to initialize AI explainer
         try:
@@ -2692,22 +2879,58 @@ class ReportGenerator:
             return "AI insights not available."
         
         try:
-            # Build comprehensive context using context builder
+            # Build comprehensive context using context builder with all training configuration
             try:
                 context_str = ContextBuilder.build_training_context(
                     results_df,
-                    self.raw_data if hasattr(self, 'raw_data') and self.raw_data is not None else pd.DataFrame(),
-                    self.target_col if hasattr(self, 'target_col') else 'target',
-                    paradigm=paradigm
+                    self.raw_data if self.raw_data is not None else pd.DataFrame(),
+                    self.target_col if self.target_col else 'target',
+                    paradigm=paradigm,
+                    data_analytics_context=self.data_analytics_context,
+                    feature_engineering_config=self.feature_engineering_config,
+                    feature_engineering_data=self.feature_engineering_data,
+                    feature_importance_data=self.feature_importance_data,
+                    cv_strategy=self.cv_strategy,
+                    search_method=self.search_method,
+                    n_iter=self.n_iter,
+                    cv_folds=self.cv_folds
                 )
+                
+                # Log context details for debugging
+                logger.info(f"Context string length: {len(context_str)} characters")
+                logger.debug(f"Context contains R² mentions: {'R²' in context_str}")
+                logger.debug(f"Context contains RMSE mentions: {'RMSE' in context_str}")
+                logger.debug(f"Context contains metric values: {('0.8770' in context_str or '0.877' in context_str)}")
+                logger.debug(f"CV Strategy: {self.cv_strategy}, Search Method: {self.search_method}")
+                logger.debug(f"Raw data shape: {self.raw_data.shape if self.raw_data is not None else 'None'}")
+                logger.debug(f"Results df shape: {results_df.shape}")
+                
+                # Write context to file for debugging
+                try:
+                    context_file = './logs/training_context_debug.txt'
+                    with open(context_file, 'w') as f:
+                        f.write(context_str)
+                    logger.info(f"Context written to {context_file}")
+                except Exception as ce:
+                    logger.warning(f"Could not write context to file: {ce}")
+                
                 # Use answer_user_query for better AI response
                 insights = self.explainer.answer_user_query(
-                    "Analyze these model training results and provide: 1) Interpretation of the R², RMSE, MAE, and RPD metrics shown, 2) Assessment of model quality based on the actual metric values, 3) Key performance insights, 4) Recommendations for deployment or improvement. Use the specific numbers provided in the results.",
+                    "Analyze these model training results and provide: 1) Interpretation of the R², RMSE, MAE, and RPD metrics shown, 2) Assessment of model quality based on the actual metric values, 3) Key performance insights considering the CV strategy and hyperparameter search method used, 4) Recommendations for deployment or improvement. Use the specific numbers provided in the results.",
                     context_str
                 )
+                
+                if insights:
+                    logger.info(f"AI insights generated successfully ({len(insights)} characters)")
+                else:
+                    logger.warning("AI returned empty insights")
+                
                 return insights if insights else "Could not generate AI insights."
             except Exception as e:
-                logger.debug(f"Context builder approach failed: {e}, falling back to summary")
+                logger.error(f"Context builder approach failed: {e}", exc_info=True)
+                logger.error(f"Exception type: {type(e).__name__}")
+                import traceback
+                logger.error(f"Traceback:\n{traceback.format_exc()}")
                 # Fallback to the old method
                 results_dict = self._generate_summary(results_df)
                 insights = self.explainer.explain_training_results(results_dict)

@@ -25,6 +25,8 @@ import joblib
 import traceback
 from typing import Dict
 from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import threading
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent))
@@ -182,6 +184,188 @@ def display_basic_results(all_results: Dict):
 # ============================================================================
 # TRAINING MODE FUNCTIONS
 # ============================================================================
+
+def train_single_model(model_name, tech, X_train_tech, X_test_tech, y_train_vals, y_test_vals, config, fe_config, logger):
+    """
+    Train a single model with a specific technique.
+    Returns result dict or None if error occurs.
+    """
+    try:
+        from models.plsr import PLSRModel
+        from models.gbrt import GBRTModel
+        from models.krr import KRRModel
+        from models.svr import SVRModel
+        from models.cubist import CubistModel
+        
+        # Create model instance
+        if model_name == 'PLSR':
+            model = PLSRModel(n_components=10, tune_hyperparameters=config['tune'], cv_folds=config['cv_folds'], cv_strategy=config.get('cv_strategy', 'k-fold'), search_method=config.get('search_method', 'grid'), n_iter=config.get('n_iter', 20))
+        elif model_name == 'GBRT':
+            model = GBRTModel(n_estimators=60, learning_rate=0.05, max_depth=5, tune_hyperparameters=config['tune'], cv_folds=config['cv_folds'], cv_strategy=config.get('cv_strategy', 'k-fold'), search_method=config.get('search_method', 'grid'), n_iter=config.get('n_iter', 20))
+        elif model_name == 'KRR':
+            model = KRRModel(alpha=1.0, kernel='rbf', gamma=None, tune_hyperparameters=config['tune'], cv_folds=config['cv_folds'], cv_strategy=config.get('cv_strategy', 'k-fold'), search_method=config.get('search_method', 'grid'), n_iter=config.get('n_iter', 20))
+        elif model_name == 'SVR':
+            model = SVRModel(kernel='rbf', C=100.0, epsilon=0.1, tune_hyperparameters=config['tune'], cv_folds=config['cv_folds'], cv_strategy=config.get('cv_strategy', 'k-fold'), search_method=config.get('search_method', 'grid'), n_iter=config.get('n_iter', 20))
+        elif model_name == 'Cubist':
+            model = CubistModel(n_rules=20, neighbors=5, tune_hyperparameters=config['tune'], cv_folds=config['cv_folds'], cv_strategy=config.get('cv_strategy', 'k-fold'), search_method=config.get('search_method', 'grid'), n_iter=config.get('n_iter', 20))
+        else:
+            return None
+        
+        # Train model
+        model.train(X_train_tech, y_train_vals)
+        
+        # Get predictions
+        y_train_pred = model.predict(X_train_tech)
+        y_test_pred = model.predict(X_test_tech)
+        
+        # Calculate metrics
+        train_r2 = r2_score(y_train_vals, y_train_pred)
+        test_r2 = r2_score(y_test_vals, y_test_pred)
+        train_rmse = np.sqrt(mean_squared_error(y_train_vals, y_train_pred))
+        test_rmse = np.sqrt(mean_squared_error(y_test_vals, y_test_pred))
+        train_mae = mean_absolute_error(y_train_vals, y_train_pred)
+        test_mae = mean_absolute_error(y_test_vals, y_test_pred)
+        test_rpd = np.std(y_test_vals) / test_rmse if test_rmse > 0 else 0
+        
+        # Compute LOO CV metrics if selected
+        loo_cv_r2 = None
+        loo_cv_rmse = None
+        if config.get('cv_strategy', 'k-fold') == 'leave-one-out':
+            try:
+                from sklearn.model_selection import LeaveOneOut
+                loo = LeaveOneOut()
+                y_pred_loo = np.zeros_like(y_train_vals, dtype=float)
+                fold_count = 0
+                loo_errors = []
+                
+                for train_idx, test_idx in loo.split(X_train_tech):
+                    fold_count += 1
+                    try:
+                        X_fold_train, X_fold_test = X_train_tech[train_idx], X_train_tech[test_idx]
+                        y_fold_train = y_train_vals[train_idx]
+                        
+                        # Create fresh model for this fold
+                        if model_name == 'PLSR':
+                            model_fold = PLSRModel(n_components=10, tune_hyperparameters=False, cv_folds=config['cv_folds'], cv_strategy='k-fold')
+                        elif model_name == 'GBRT':
+                            model_fold = GBRTModel(n_estimators=60, learning_rate=0.05, max_depth=5, tune_hyperparameters=False, cv_folds=config['cv_folds'], cv_strategy='k-fold')
+                        elif model_name == 'KRR':
+                            model_fold = KRRModel(alpha=1.0, kernel='rbf', gamma=None, tune_hyperparameters=False, cv_folds=config['cv_folds'], cv_strategy='k-fold')
+                        elif model_name == 'SVR':
+                            model_fold = SVRModel(kernel='rbf', C=100.0, epsilon=0.1, tune_hyperparameters=False, cv_folds=config['cv_folds'], cv_strategy='k-fold')
+                        elif model_name == 'Cubist':
+                            model_fold = CubistModel(n_rules=20, neighbors=5, tune_hyperparameters=False, cv_folds=config['cv_folds'], cv_strategy='k-fold', search_method=config.get('search_method', 'grid'), n_iter=config.get('n_iter', 20))
+                        else:
+                            model_fold = None
+                        
+                        if model_fold is not None:
+                            model_fold.train(X_fold_train, y_fold_train)
+                            pred = model_fold.predict(X_fold_test)
+                            if isinstance(pred, np.ndarray):
+                                y_pred_loo[test_idx] = pred if len(pred) > 1 else pred[0]
+                            else:
+                                y_pred_loo[test_idx] = float(pred)
+                    except Exception as fold_err:
+                        logger.error(f"LOO fold {fold_count} error for {model_name} ({tech}): {str(fold_err)}", exc_info=True)
+                        loo_errors.append(str(fold_err))
+                
+                if len(loo_errors) == 0 and np.any(~np.isnan(y_pred_loo)):
+                    loo_cv_r2 = r2_score(y_train_vals, y_pred_loo)
+                    loo_cv_rmse = np.sqrt(mean_squared_error(y_train_vals, y_pred_loo))
+                    logger.info(f"✅ {model_name} ({tech}) LOO CV Complete: R²={loo_cv_r2:.4f}, RMSE={loo_cv_rmse:.4f}")
+                else:
+                    logger.warning(f"LOO CV for {model_name} ({tech}) had {len(loo_errors)} errors or NaN predictions")
+            except Exception as loo_e:
+                logger.error(f"LOO CV computation failed for {model_name} ({tech}): {str(loo_e)}", exc_info=True)
+        
+        # Compute LOO CV metrics on TEST set as well
+        loo_test_cv_r2 = None
+        loo_test_cv_rmse = None
+        if config.get('cv_strategy', 'k-fold') == 'leave-one-out':
+            try:
+                from sklearn.model_selection import LeaveOneOut
+                loo_test = LeaveOneOut()
+                y_pred_loo_test = np.zeros_like(y_test_vals, dtype=float)
+                fold_count_test = 0
+                loo_test_errors = []
+                
+                # Use trained model on full training data as base for LOO on test
+                for train_idx, test_idx in loo_test.split(X_test_tech):
+                    fold_count_test += 1
+                    try:
+                        # Train on subset of test data, predict on held-out test sample
+                        X_fold_train_test = X_test_tech[train_idx]
+                        X_fold_test_test = X_test_tech[test_idx]
+                        y_fold_train_test = y_test_vals[train_idx]
+                        
+                        # Create fresh model for this fold
+                        if model_name == 'PLSR':
+                            model_fold_test = PLSRModel(n_components=10, tune_hyperparameters=False, cv_folds=config['cv_folds'], cv_strategy='k-fold')
+                        elif model_name == 'GBRT':
+                            model_fold_test = GBRTModel(n_estimators=60, learning_rate=0.05, max_depth=5, tune_hyperparameters=False, cv_folds=config['cv_folds'], cv_strategy='k-fold')
+                        elif model_name == 'KRR':
+                            model_fold_test = KRRModel(alpha=1.0, kernel='rbf', gamma=None, tune_hyperparameters=False, cv_folds=config['cv_folds'], cv_strategy='k-fold')
+                        elif model_name == 'SVR':
+                            model_fold_test = SVRModel(kernel='rbf', C=100.0, epsilon=0.1, tune_hyperparameters=False, cv_folds=config['cv_folds'], cv_strategy='k-fold')
+                        elif model_name == 'Cubist':
+                            model_fold_test = CubistModel(n_rules=20, neighbors=5, tune_hyperparameters=False, cv_folds=config['cv_folds'], cv_strategy='k-fold', search_method=config.get('search_method', 'grid'), n_iter=config.get('n_iter', 20))
+                        else:
+                            model_fold_test = None
+                        
+                        if model_fold_test is not None:
+                            model_fold_test.train(X_fold_train_test, y_fold_train_test)
+                            pred_test = model_fold_test.predict(X_fold_test_test)
+                            if isinstance(pred_test, np.ndarray):
+                                y_pred_loo_test[test_idx] = pred_test if len(pred_test) > 1 else pred_test[0]
+                            else:
+                                y_pred_loo_test[test_idx] = float(pred_test)
+                    except Exception as fold_err_test:
+                        logger.error(f"LOO test fold {fold_count_test} error for {model_name} ({tech}): {str(fold_err_test)}", exc_info=True)
+                        loo_test_errors.append(str(fold_err_test))
+                
+                if len(loo_test_errors) == 0 and np.any(~np.isnan(y_pred_loo_test)):
+                    loo_test_cv_r2 = r2_score(y_test_vals, y_pred_loo_test)
+                    loo_test_cv_rmse = np.sqrt(mean_squared_error(y_test_vals, y_pred_loo_test))
+                    logger.info(f"✅ {model_name} ({tech}) TEST LOO CV Complete: R²={loo_test_cv_r2:.4f}, RMSE={loo_test_cv_rmse:.4f}")
+                else:
+                    logger.warning(f"TEST LOO CV for {model_name} ({tech}) had {len(loo_test_errors)} errors or NaN predictions")
+            except Exception as loo_test_e:
+                logger.error(f"TEST LOO CV computation failed for {model_name} ({tech}): {str(loo_test_e)}", exc_info=True)
+        
+        # Extract hyperparameters
+        hyperparams = {}
+        try:
+            from model_analyzer import ParameterInspector
+            hyperparams = ParameterInspector.get_hyperparameters(model)
+        except Exception as hp_error:
+            logger.debug(f"Could not extract hyperparameters for {model_name}: {hp_error}")
+        
+        return {
+            'Model': model_name,
+            'Technique': tech,
+            'Train_R²': train_r2,
+            'Test_R²': test_r2,
+            'LOO_CV_R²': loo_cv_r2,
+            'LOO_CV_RMSE': loo_cv_rmse,
+            'LOO_CV_Test_R²': loo_test_cv_r2,
+            'LOO_CV_Test_RMSE': loo_test_cv_rmse,
+            'Train_RMSE': train_rmse,
+            'Test_RMSE': test_rmse,
+            'Train_MAE': train_mae,
+            'Test_MAE': test_mae,
+            'RPD': test_rpd,
+            'Model_Object': model,
+            'Hyperparameters': hyperparams,
+            'Predictions': y_test_pred,
+            'LOO_CV_Test_Predictions': y_pred_loo_test if config.get('cv_strategy', 'k-fold') == 'leave-one-out' else None,
+            'X_Test': X_test_tech,
+            'y_Test': y_test_vals,
+            'FE_Config': fe_config,
+            'FE_Data': None
+        }
+    except Exception as e:
+        logger.error(f"Error training {model_name} with {tech}: {str(e)}")
+        return None
 
 # ============================================================================
 # TRAINING MODE FUNCTIONS
@@ -485,34 +669,140 @@ def training_mode():
     
     # Training type specific configuration
     if "Both" in training_type:
-        st.markdown("**Hyperparameter Tuning Configuration** (for Tuned training)")
-        cv_folds = st.slider(
-            "Cross-Validation Folds",
-            min_value=3,
-            max_value=10,
-            value=5,
-            help="Higher folds = more robust tuning but slower training",
-            disabled=st.session_state.get('training_in_progress', False) or st.session_state.get('report_generating', False) or st.session_state.get('ai_thinking', False)
-        )
+        st.markdown("**Cross-Validation Configuration** (Applied to Both Standard and Tuned)")
+        st.info("ℹ️ Both paradigms will use the same CV strategy. Standard uses default hyperparameters, Tuned optimizes them.")
+        
+        col_cv1, col_cv2 = st.columns(2)
+        with col_cv1:
+            cv_strategy = st.selectbox(
+                "Cross-Validation Strategy",
+                ["K-Fold", "Leave-One-Out"],
+                help="K-Fold: standard k-fold CV | Leave-One-Out: LOO CV (slower, best for small data)",
+                disabled=st.session_state.get('training_in_progress', False) or st.session_state.get('report_generating', False) or st.session_state.get('ai_thinking', False)
+            )
+        
+        with col_cv2:
+            if cv_strategy == "K-Fold":
+                cv_folds = st.slider(
+                    "Cross-Validation Folds",
+                    min_value=3,
+                    max_value=10,
+                    value=5,
+                    help="Higher folds = more robust tuning but slower training",
+                    disabled=st.session_state.get('training_in_progress', False) or st.session_state.get('report_generating', False) or st.session_state.get('ai_thinking', False)
+                )
+            else:
+                cv_folds = None
+                st.info("📌 Leave-One-Out CV uses n_samples folds (one for each sample)")
+        
+        st.markdown("**Hyperparameter Search Configuration** (for Tuned paradigm)")
+        col_search1, col_search2 = st.columns(2)
+        with col_search1:
+            search_method = st.selectbox(
+                "Search Method for Tuned Training",
+                ["GridSearch (comprehensive, slower)", "RandomizedSearch (faster, focused)"],
+                help="GridSearch: exhaustive search on large parameter grid | RandomizedSearch: random sampling on small grid",
+                disabled=st.session_state.get('training_in_progress', False) or st.session_state.get('report_generating', False) or st.session_state.get('ai_thinking', False)
+            )
+            search_method_key = 'grid' if 'Grid' in search_method else 'random'
+        
+        with col_search2:
+            if search_method_key == 'random':
+                n_iter = st.slider(
+                    "RandomSearch Iterations",
+                    min_value=10,
+                    max_value=50,
+                    value=20,
+                    step=5,
+                    help="Number of parameter combinations to try in RandomizedSearch",
+                    disabled=st.session_state.get('training_in_progress', False) or st.session_state.get('report_generating', False) or st.session_state.get('ai_thinking', False)
+                )
+            else:
+                n_iter = 20  # Default fallback
+                st.info("GridSearch uses all parameter combinations (comprehensive)")
+        
+        # BOTH Standard and Tuned use the same CV strategy for fair comparison
         tune_configs = [
-            {'tune': False, 'cv_folds': 5, 'name': 'Standard'},
-            {'tune': True, 'cv_folds': cv_folds, 'name': 'Tuned'}
+            {'tune': False, 'cv_folds': cv_folds, 'cv_strategy': cv_strategy.lower(), 'name': 'Standard', 'search_method': 'grid', 'n_iter': 20},
+            {'tune': True, 'cv_folds': cv_folds, 'cv_strategy': cv_strategy.lower(), 'name': 'Tuned', 'search_method': search_method_key, 'n_iter': n_iter}
         ]
     elif "Tuned" in training_type:
-        cv_folds = st.slider(
-            "Cross-Validation Folds",
-            min_value=3,
-            max_value=10,
-            value=5,
-            help="Higher folds = more robust tuning but slower training",
-            disabled=st.session_state.get('training_in_progress', False) or st.session_state.get('report_generating', False) or st.session_state.get('ai_thinking', False)
-        )
+        st.markdown("**Hyperparameter Tuning Configuration** (for Tuned training)")
+        
+        col_cv1, col_cv2 = st.columns(2)
+        with col_cv1:
+            cv_strategy = st.selectbox(
+                "Cross-Validation Strategy",
+                ["K-Fold", "Leave-One-Out"],
+                help="K-Fold: standard k-fold CV | Leave-One-Out: LOO CV (slower, best for small data)",
+                disabled=st.session_state.get('training_in_progress', False) or st.session_state.get('report_generating', False) or st.session_state.get('ai_thinking', False)
+            )
+        
+        with col_cv2:
+            if cv_strategy == "K-Fold":
+                cv_folds = st.slider(
+                    "Cross-Validation Folds",
+                    min_value=3,
+                    max_value=10,
+                    value=5,
+                    help="Higher folds = more robust tuning but slower training",
+                    disabled=st.session_state.get('training_in_progress', False) or st.session_state.get('report_generating', False) or st.session_state.get('ai_thinking', False)
+                )
+            else:
+                cv_folds = None
+                st.info("📌 Leave-One-Out CV uses n_samples folds (one for each sample)")
+        
+        col_search1, col_search2 = st.columns(2)
+        with col_search1:
+            search_method = st.selectbox(
+                "Search Method for Tuned Training",
+                ["GridSearch (comprehensive, slower)", "RandomizedSearch (faster, focused)"],
+                help="GridSearch: exhaustive search on large parameter grid | RandomizedSearch: random sampling on small grid",
+                disabled=st.session_state.get('training_in_progress', False) or st.session_state.get('report_generating', False) or st.session_state.get('ai_thinking', False)
+            )
+            search_method_key = 'grid' if 'Grid' in search_method else 'random'
+        
+        with col_search2:
+            if search_method_key == 'random':
+                n_iter = st.slider(
+                    "RandomSearch Iterations",
+                    min_value=10,
+                    max_value=50,
+                    value=20,
+                    step=5,
+                    help="Number of parameter combinations to try in RandomizedSearch",
+                    disabled=st.session_state.get('training_in_progress', False) or st.session_state.get('report_generating', False) or st.session_state.get('ai_thinking', False)
+                )
+            else:
+                n_iter = 20  # Default fallback
+                st.info("GridSearch uses all parameter combinations (comprehensive)")
+        
         tune_configs = [
-            {'tune': True, 'cv_folds': cv_folds, 'name': 'Tuned'}
+            {'tune': True, 'cv_folds': cv_folds, 'cv_strategy': cv_strategy.lower(), 'name': 'Tuned', 'search_method': search_method_key, 'n_iter': n_iter}
         ]
     else:
+        st.markdown("**Cross-Validation Strategy** (for Standard training)")
+        
+        col_cv1, col_cv2 = st.columns(2)
+        with col_cv1:
+            cv_strategy = st.selectbox(
+                "Cross-Validation Strategy",
+                ["K-Fold", "Leave-One-Out"],
+                help="K-Fold: standard k-fold CV | Leave-One-Out: LOO CV (slower, best for small data)",
+                disabled=st.session_state.get('training_in_progress', False) or st.session_state.get('report_generating', False) or st.session_state.get('ai_thinking', False),
+                key="cv_strategy_standard"
+            )
+        
+        with col_cv2:
+            if cv_strategy == "K-Fold":
+                cv_folds = 5
+                st.info("Using K-Fold with 5 splits")
+            else:
+                cv_folds = None
+                st.info("📌 Leave-One-Out CV uses n_samples folds (one for each sample)")
+        
         tune_configs = [
-            {'tune': False, 'cv_folds': 5, 'name': 'Standard'}
+            {'tune': False, 'cv_folds': cv_folds, 'cv_strategy': cv_strategy.lower(), 'name': 'Standard'}
         ]
     
     # Feature Engineering Configuration
@@ -610,6 +900,34 @@ def training_mode():
     # Check if we should run training
     if st.session_state.get('training_in_progress', False):
         st.info("🚀 Training is in progress... All controls are disabled. Do not refresh the page.")
+        
+        # Store training configuration parameters to session state for report generation
+        try:
+            # Extract CV strategy and search method from tune_configs
+            if 'tune_configs' in locals() and len(tune_configs) > 0:
+                # Get the first config to extract common parameters
+                first_config = tune_configs[0]
+                st.session_state['cv_strategy'] = first_config.get('cv_strategy', 'k-fold')
+                st.session_state['cv_folds'] = first_config.get('cv_folds', 5)
+                
+                # For search method and n_iter, look for tuned config if available
+                for config in tune_configs:
+                    if config.get('tune', False):
+                        st.session_state['search_method'] = config.get('search_method', 'grid')
+                        st.session_state['n_iter'] = config.get('n_iter', 20)
+                        break
+                else:
+                    # If no tuned config found, use defaults
+                    st.session_state['search_method'] = 'grid'
+                    st.session_state['n_iter'] = 20
+        except Exception as config_error:
+            logger.warning(f"Could not store training configuration: {config_error}")
+            # Set defaults if anything goes wrong
+            st.session_state['cv_strategy'] = 'k-fold'
+            st.session_state['cv_folds'] = 5
+            st.session_state['search_method'] = 'grid'
+            st.session_state['n_iter'] = 20
+        
         try:
             perf_tracker.start_timer("full_pipeline")
             
@@ -639,6 +957,32 @@ def training_mode():
                 X_test_proc[tech] = preprocessor.transform(X_test.values)
             
             st.session_state.preprocessor = preprocessor
+            
+            # Store spectral data and compute band-target correlations per technique
+            st.session_state.X_train_current = X_train.values
+            st.session_state.y_train_current = y_train.values if hasattr(y_train, 'values') else y_train
+            
+            # Compute band-target correlations for each preprocessed technique
+            try:
+                from scipy.stats import pearsonr
+                band_target_correlations = {}
+                y_train_vals = y_train.values if hasattr(y_train, 'values') else y_train
+                
+                for tech in ['reflectance', 'absorbance', 'continuum_removal']:
+                    X_tech = X_train_proc[tech]
+                    # Compute correlation for each band with target
+                    correlations = np.array([
+                        abs(pearsonr(X_tech[:, i], y_train_vals)[0])
+                        if np.std(X_tech[:, i]) > 1e-8 else 0
+                        for i in range(X_tech.shape[1])
+                    ])
+                    band_target_correlations[tech] = correlations
+                
+                st.session_state.band_target_correlations = band_target_correlations
+                logger.info(f"Computed band-target correlations for all 3 techniques")
+            except Exception as corr_err:
+                logger.warning(f"Could not compute band-target correlations: {str(corr_err)}")
+                st.session_state.band_target_correlations = None
             
             # Feature Engineering
             fe_config = st.session_state.feature_engineering
@@ -764,91 +1108,63 @@ def training_mode():
             
             for config in tune_configs:
                 config_name = config['name']
-                progress_placeholder.info(f"⏳ Training {config_name} models...")
+                cv_strategy_name = config.get('cv_strategy', 'k-fold').replace('-', ' ').title()
+                
+                # Show warning if LOO CV is selected
+                if config.get('cv_strategy', 'k-fold') == 'leave-one-out':
+                    progress_placeholder.warning(
+                        f"⏳ Training {config_name} models with **Leave-One-Out CV** (slower than K-fold)...\n\n"
+                        f"⚙️ **Note:** LOO CV will train {len(y_train)} separate models. This may take several minutes."
+                    )
+                else:
+                    progress_placeholder.info(f"⏳ Training {config_name} models ({cv_strategy_name})...")
                 
                 trainer = ModelTrainer(
                     tune_hyperparameters=config['tune'],
-                    cv_folds=config['cv_folds']
+                    cv_folds=config['cv_folds'],
+                    cv_strategy=config.get('cv_strategy', 'k-fold'),
+                    search_method=config.get('search_method', 'grid'),
+                    n_iter=config.get('n_iter', 20)
                 )
                 
                 # Train all combinations by iterating through techniques
                 # and training all models with each technique
                 all_technique_results = []
                 
-                for tech in ['reflectance', 'absorbance', 'continuum_removal']:
-                    X_train_tech = X_train_proc[tech]
-                    X_test_tech = X_test_proc[tech]
-                    y_train_vals = y_train.values
-                    y_test_vals = y_test.values
+                # Train all 15 combinations (3 techniques × 5 models) in PARALLEL
+                all_technique_results_temp = []
+                
+                with ThreadPoolExecutor(max_workers=15) as executor:
+                    # Submit all technique+model combinations simultaneously
+                    future_to_combo = {}
                     
-                    # Train all 5 models with this technique
-                    for model_name in trainer.models.keys():
+                    for tech in ['reflectance', 'absorbance', 'continuum_removal']:
+                        X_train_tech = X_train_proc[tech]
+                        X_test_tech = X_test_proc[tech]
+                        y_train_vals = y_train.values
+                        y_test_vals = y_test.values
+                        
+                        for model_name in trainer.models.keys():
+                            future = executor.submit(
+                                train_single_model,
+                                model_name, tech,
+                                X_train_tech, X_test_tech,
+                                y_train_vals, y_test_vals,
+                                config, fe_config, logger
+                            )
+                            future_to_combo[future] = (model_name, tech)
+                    
+                    # Collect results as they complete
+                    for future in as_completed(future_to_combo):
                         try:
-                            # Create a FRESH model instance for this technique to avoid weight overwrites
-                            # IMPORTANT: Pass tune_hyperparameters and cv_folds to enable tuning!
-                            from models.plsr import PLSRModel
-                            from models.gbrt import GBRTModel
-                            from models.krr import KRRModel
-                            from models.svr import SVRModel
-                            from models.cubist import CubistModel
-                            
-                            if model_name == 'PLSR':
-                                model = PLSRModel(n_components=10, tune_hyperparameters=config['tune'], cv_folds=config['cv_folds'])
-                            elif model_name == 'GBRT':
-                                model = GBRTModel(n_estimators=100, learning_rate=0.1, max_depth=5, tune_hyperparameters=config['tune'], cv_folds=config['cv_folds'])
-                            elif model_name == 'KRR':
-                                model = KRRModel(alpha=1.0, kernel='rbf', gamma=None, tune_hyperparameters=config['tune'], cv_folds=config['cv_folds'])
-                            elif model_name == 'SVR':
-                                model = SVRModel(kernel='rbf', C=100.0, epsilon=0.1, tune_hyperparameters=config['tune'], cv_folds=config['cv_folds'])
-                            elif model_name == 'Cubist':
-                                model = CubistModel(n_rules=20, neighbors=5, tune_hyperparameters=config['tune'], cv_folds=config['cv_folds'])
-                            else:
-                                model = trainer.models[model_name]
-                            
-                            model.train(X_train_tech, y_train_vals)
-                            
-                            # Get predictions
-                            y_train_pred = model.predict(X_train_tech)
-                            y_test_pred = model.predict(X_test_tech)
-                            
-                            # Calculate metrics
-                            train_r2 = r2_score(y_train_vals, y_train_pred)
-                            test_r2 = r2_score(y_test_vals, y_test_pred)
-                            train_rmse = np.sqrt(mean_squared_error(y_train_vals, y_train_pred))
-                            test_rmse = np.sqrt(mean_squared_error(y_test_vals, y_test_pred))
-                            train_mae = mean_absolute_error(y_train_vals, y_train_pred)
-                            test_mae = mean_absolute_error(y_test_vals, y_test_pred)
-                            test_rpd = np.std(y_test_vals) / test_rmse if test_rmse > 0 else 0
-                            
-                            # Extract hyperparameters from the trained model using ParameterInspector
-                            hyperparams = {}
-                            try:
-                                from model_analyzer import ParameterInspector
-                                hyperparams = ParameterInspector.get_hyperparameters(model)
-                            except Exception as hp_error:
-                                logger.debug(f"Could not extract hyperparameters for {model_name}: {hp_error}")
-                            
-                            all_technique_results.append({
-                                'Model': model_name,
-                                'Technique': tech,
-                                'Train_R²': train_r2,
-                                'Test_R²': test_r2,
-                                'Train_RMSE': train_rmse,
-                                'Test_RMSE': test_rmse,
-                                'Train_MAE': train_mae,
-                                'Test_MAE': test_mae,
-                                'RPD': test_rpd,
-                                'Model_Object': model,
-                                'Hyperparameters': hyperparams,
-                                'Predictions': y_test_pred,
-                                'X_Test': X_test_tech,
-                                'y_Test': y_test_vals,
-                                'FE_Config': fe_config,
-                                'FE_Data': fe_data if 'fe_data' in locals() else None
-                            })
+                            result = future.result()
+                            if result is not None:
+                                all_technique_results_temp.append(result)
                         except Exception as e:
-                            st.warning(f"⚠️ Error training {model_name} with {tech}: {str(e)}")
-                            logger.error(f"Error training {model_name} with {tech}: {str(e)}")
+                            model_name, tech = future_to_combo[future]
+                            logger.error(f"Error in parallel training {model_name} ({tech}): {str(e)}", exc_info=True)
+                
+                all_technique_results.extend(all_technique_results_temp)
                 
                 # Create results DataFrame
                 results = pd.DataFrame(all_technique_results)
